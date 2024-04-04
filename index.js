@@ -255,6 +255,7 @@ function getAuthorizaionByToken(token) {
     })
 }
 
+
 function checkAuthorizationLevel(request, level) {
     return new Promise((resolve, reject) => {
         let token = request.headers["authorization"]
@@ -264,8 +265,7 @@ function checkAuthorizationLevel(request, level) {
         } else {
             getAuthorizaionByToken(token).then((auth) => {
                 if (auth["expires"] !== undefined && auth["expires"] !== null) {
-                    let dateParts = auth["expires"].split("-");
-                    let jsDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2].substr(0, 2));
+                    let jsDate = new Date(Date.parse(String(auth["expires"])))
                     if (jsDate.getMilliseconds() < Date.now()) {
                         reject({code: 403, error: "Token expired"})
                         return
@@ -287,30 +287,44 @@ function checkAuthorizationLevel(request, level) {
 
 //ToDO: Rework, add token verification
 
-app.get("/persons", (request, response) => {
-    checkAuthorizationLevel(request, 2).then(() => {
-        let limit = request.query.limit, offset = request.query.offset, orderby = request.query.orderby;
-        if (orderby !== undefined) {
-            orderby = JSON.parse(orderby)
-            if (orderby["keyword"] === undefined && orderby["direction"] === undefined) {
-                response.status(400).send({error: "orderby keyword and direction (ASC, DESC) must be specified"})
-                return
-            }
+let endpoints = []
+
+function api(call, endpoint, func, permlevel = undefined){
+    endpoints.push({method: call, endpoint: endpoint, permission: permlevel})
+    app[call](endpoint, (request, response)=>{
+        if (permlevel !== undefined){
+            checkAuthorizationLevel(request, permlevel).then(()=>{
+                func(request, response)
+            }).catch((error)=>{
+                response.status(error.code).send({error: error.error})
+            })
+        } else {
+            func(request, response)
         }
-        getPersons(limit, offset, orderby).then((persons) => {
-            response.send(persons);
-        }).catch((error) => {
-            response.status(error.code).send({error: error.error});
-        })
-    }).catch((error) => {
-        response.status(error.code).send({error: error.error})
-        return
     })
+}
 
+api("get", "/me", (request, response)=>{
 
-})
+}, 1)
 
-app.get("/person/:id", (request, response) => {
+api("get", "/persons", (request, response) => {
+    let limit = request.query.limit, offset = request.query.offset, orderby = request.query.orderby;
+    if (orderby !== undefined) {
+        orderby = JSON.parse(orderby)
+        if (orderby["keyword"] === undefined && orderby["direction"] === undefined) {
+            response.status(400).send({error: "orderby keyword and direction (ASC, DESC) must be specified"})
+            return
+        }
+    }
+    getPersons(limit, offset, orderby).then((persons) => {
+        response.send(persons);
+    }).catch((error) => {
+        response.status(error.code).send({error: error.error});
+    })
+}, 2)
+
+api("get", "/persons/:id", (request, response) => {
     const id = parseInt(request.params.id);
 
     getPerson(id).then((person) => {
@@ -318,9 +332,9 @@ app.get("/person/:id", (request, response) => {
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
     })
-});
+}, 2)
 
-app.get("/rooms/:id", (request, response) => {
+api("get", "/rooms/:id", (request, response) => {
     const id = parseInt(request.params.id);
 
     getRoom(id).then((person) => {
@@ -328,11 +342,12 @@ app.get("/rooms/:id", (request, response) => {
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
     })
-});
+}, 1)
+
+
 
 //ToDO: Rework, add token verification
-
-app.get("/classes/:id", (req, res) => {
+api("get", "/classes/:id",(req, res) => {
     const id = parseInt(req.params.id);
 
     getClass(id).then((classObject) => {
@@ -340,9 +355,9 @@ app.get("/classes/:id", (req, res) => {
     }).catch(error => {
         res.status(error.code).send({error: error.error});
     })
-});
+}, 1)
 
-app.get("/classes", (req, res) => {
+api("get", "/classes",(req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
     if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
@@ -356,9 +371,10 @@ app.get("/classes", (req, res) => {
     }).catch((error) => {
         res.status(error.code).send({error: error.error});
     })
-})
+}, 1)
 
-app.get("/rooms", (req, res) => {
+
+api("get", "/rooms", (req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
     if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
@@ -372,10 +388,11 @@ app.get("/rooms", (req, res) => {
     }).catch((error) => {
         res.status(error.code).send({error: error.error});
     })
-})
+}, 1)
 
 //ToDO: Rework, add token verification
-app.get("/students", (req, res) => {
+
+api("get", "/students", (req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
     if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
@@ -389,14 +406,14 @@ app.get("/students", (req, res) => {
     }).catch((error) => {
         res.status(error.code).send({error: error.error});
     })
-});
+}, 2)
+
+api("post", "/login", (req, res) => {
+    let body = req.body
+    let id = body.id, password = body.password
 
 
-// GET /login?id={id}&password={password}
-app.get('/login', (req, res) => {
-    let id = req.query.id, password = req.query.password;
-
-    getLogin(id, password).then((token) => {
+    getTokenByLogin(id, password).then((token) => {
         res.status(200).send({token: token})
     }).catch((error) => {
         res.status(error.code).send({error: error.error})
@@ -447,7 +464,7 @@ function updateToken(id) {
 }
 
 //ToDO: Rework, add token verification
-app.put('/login', (req, res) => {
+api("put", "/login", (req, res) => {
 
     if (!req.is("application/json")) {
         res.status(415).send({error: "Content type must be application/json"})
@@ -480,7 +497,6 @@ app.put('/login', (req, res) => {
                     res.status(200).send({message: "Credentials updated successfully", token: token});
                 }).catch(error => {
                     res.status(503).send({error: "Could not generate token"})
-
                 })
             })
         }).catch(error => {
@@ -489,9 +505,10 @@ app.put('/login', (req, res) => {
     }).catch(error => {
         res.status(error.code).send({error: error.error})
     })
-})
+}, 1)
 
-app.get('/students/:id/class', (req, res) => {
+
+api("get", "/students/:id/class", (req, res) => {
     const studentID = parseInt(req.params.id);
     query("SELECT classid FROM students_classes WHERE personid = ?", [studentID]).then((results, fields) => {
         if (results.length === 0) {
@@ -506,13 +523,19 @@ app.get('/students/:id/class', (req, res) => {
     }).catch(error => {
         res.status(error.code).send({error: error.error})
     })
-})
+}, 1)
 
-app.get('/shortkey/:classid/:short', (req, res) => {
+
+api("get", "/shortkey/:classid/:short", (req, res) => {
     let classid = parseInt(req.params.classid), short = req.params.short;
     getPersonIDByShortKey(short, classid).then(personID => {
         res.status(200).send({personID: personID})
     }).catch((error) => res.status(error.code).send({error: error.error}))
+})
+
+
+api("get", "/", (request, response) => {
+    response.send(endpoints)
 })
 
 app.listen(8080)
