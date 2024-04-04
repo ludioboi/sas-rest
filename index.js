@@ -15,7 +15,7 @@ try {
     mysql = require("mysql")
     express = require("express")
     logger = require("./logger.js")
-} catch (error){
+} catch (error) {
     console.error("Could not load libraries. Error: " + error)
     console.log("exiting...")
     process.exit(-1)
@@ -38,7 +38,7 @@ app.use(express.json())
 
 //MySQL query, if an error occurs, it gets rejected by the promise
 
-function query(query, values=[]){
+function query(query, values = []) {
     return new Promise((resolve, reject) => {
         database.query(query, values, (error, results, fields) => {
             if (error) {
@@ -49,6 +49,7 @@ function query(query, values=[]){
         })
     })
 }
+
 database = mysql.createPool(config)
 
 //On query, a new connection to the database is created
@@ -70,7 +71,7 @@ function initMySQL() {
     query('CREATE TABLE IF NOT EXISTS person (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'firstname VARCHAR(255) NOT NULL, ' +
         'secondname VARCHAR(255), ' +
-        'lastname VARCHAR(255) NOT NULL, '+
+        'lastname VARCHAR(255) NOT NULL, ' +
         'short VARCHAR(5), ' +
         'role int not null);').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS rooms (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
@@ -82,6 +83,7 @@ function initMySQL() {
     query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, personid int, classid int);').catch(error => console.error(error))
 
 }
+
 initMySQL()
 
 function getPersonIDByShortKey(short, classid) {
@@ -98,9 +100,11 @@ function getPersonIDByShortKey(short, classid) {
     })
 }
 
-function getTokenByLogin(id, password){
+function getTokenByLogin(id, password) {
     return new Promise((resolve, reject) => {
-        query(`SELECT * FROM credentials WHERE personid =?`, [id]).then((results, fields) => {
+        query(`SELECT *
+               FROM credentials
+               WHERE personid = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
                 return
@@ -124,7 +128,9 @@ function getTokenByLogin(id, password){
 
 function getPerson(id) {
     return new Promise((resolve, reject) => {
-        query(`SELECT * FROM person WHERE id = ?`, [id]).then((results, fields) => {
+        query(`SELECT *
+               FROM person
+               WHERE id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
                 return
@@ -138,7 +144,7 @@ function getPerson(id) {
 
 function getPersons(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
-        let queryString = "SELECT * FROM person" + (orderby !== undefined? " ORDER BY " + orderby.keyword + " " + orderby.direction: "") + (limit!== undefined? " LIMIT " + limit : "") + (offset!== undefined? " OFFSET " + offset : "");
+        let queryString = "SELECT * FROM person" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
         query(queryString).then((results, fields) => {
             resolve(results);
         }).catch((error) => {
@@ -149,7 +155,7 @@ function getPersons(limit, offset, orderby) {
 
 function getStudents(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
-        let queryString = "SELECT * FROM person where role = 1" + (orderby !== undefined? " ORDER BY " + orderby.keyword + " " + orderby.direction: "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
+        let queryString = "SELECT * FROM person where role = 1" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
         query(queryString).then((results, fields) => {
             resolve(results);
         }).catch((error) => {
@@ -158,9 +164,11 @@ function getStudents(limit, offset, orderby) {
     })
 }
 
-function getRoom(id){
+function getRoom(id) {
     return new Promise((resolve, reject) => {
-        query(`SELECT * FROM rooms WHERE id =?`, [id]).then((results, fields) => {
+        query(`SELECT *
+               FROM rooms
+               WHERE id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
                 return
@@ -174,7 +182,7 @@ function getRoom(id){
 
 function getRooms(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
-        let queryString = "SELECT * FROM rooms" + (orderby !== undefined? " ORDER BY " + orderby.keyword + " " + orderby.direction: "") + (offset !== undefined ? " OFFSET " + offset : "") + (limit !== undefined ? " LIMIT " + limit : "");
+        let queryString = "SELECT * FROM rooms" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (offset !== undefined ? " OFFSET " + offset : "") + (limit !== undefined ? " LIMIT " + limit : "");
         query(queryString).then((results, fields) => {
             resolve(results);
         }).catch((error) => {
@@ -183,9 +191,11 @@ function getRooms(limit, offset, orderby) {
     })
 }
 
-function getClass(id){
+function getClass(id) {
     return new Promise((resolve, reject) => {
-        query(`SELECT * FROM classes WHERE id =?`, [id]).then((results, fields) => {
+        query(`SELECT *
+               FROM classes
+               WHERE id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
                 return
@@ -216,7 +226,7 @@ function getClass(id){
 
 function getClasses(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
-        let queryString = "SELECT * FROM classes" + (orderby !== undefined? " ORDER BY " + orderby.keyword + " " + orderby.direction: "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
+        let queryString = "SELECT * FROM classes" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
         query(queryString).then((results, fields) => {
             resolve(results);
         }).catch((error) => {
@@ -225,49 +235,51 @@ function getClasses(limit, offset, orderby) {
     })
 }
 
-function getAuthorizaionByToken(token){
+function getAuthorizaionByToken(token) {
     return new Promise((resolve, reject) => {
         query("SELECT * FROM authorization where token = ?", [token]).then((results) => {
-            if (results.length === 0){
+            if (results.length === 0) {
                 reject({code: 404, error: "Token does not exists"})
                 return
             }
             let entry = results[0]
-            getPerson(entry["personid"]).then((person)=>{
+            getPerson(entry["personid"]).then((person) => {
                 entry["person"] = person
                 resolve(entry)
-            }).catch(()=>{
+            }).catch(() => {
                 resolve(entry)
             })
-        }).catch((error)=>{
+        }).catch((error) => {
             reject(error)
         })
     })
 }
 
-function checkAuthorizationLevel(request, level){
+function checkAuthorizationLevel(request, level) {
     return new Promise((resolve, reject) => {
-        let token = request.headers["Authorization"]
-        if (token === undefined){
+        let token = request.headers["authorization"]
+        if (token === undefined) {
             reject({code: 401, error: "No Authorization Header found"})
             return;
-        }
-        getAuthorizaionByToken(token).then((auth)=>{
-            if (auth["expires"] !== undefined){
-                let dateParts = auth["expires"].split("-");
-                let jsDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2].substr(0,2));
-                if (jsDate.getMilliseconds() < Date.now()){
-                    reject({code: 403, error: "Token expired"})
-                    return
+        } else {
+            getAuthorizaionByToken(token).then((auth) => {
+                if (auth["expires"] !== undefined && auth["expires"] !== null) {
+                    let dateParts = auth["expires"].split("-");
+                    let jsDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2].substr(0, 2));
+                    if (jsDate.getMilliseconds() < Date.now()) {
+                        reject({code: 403, error: "Token expired"})
+                        return
+                    }
                 }
-            }
 
-            if (auth["level"] >= level){
-                resolve()
-            } else {
-                reject({code: 403, error: "Not allowed"})
-            }
-        })
+                if (auth["level"] >= level) {
+                    resolve()
+                } else {
+                    reject({code: 403, error: "Not allowed"})
+                }
+            })
+        }
+
 
     })
 
@@ -276,12 +288,9 @@ function checkAuthorizationLevel(request, level){
 //ToDO: Rework, add token verification
 
 app.get("/persons", (request, response) => {
-    checkAuthorizationLevel(request, 2).catch((error)=>{
-        response.status(error.code).send({error: error.error})
-        return
-    }).then(()=>{
+    checkAuthorizationLevel(request, 2).then(() => {
         let limit = request.query.limit, offset = request.query.offset, orderby = request.query.orderby;
-        if (orderby !== undefined){
+        if (orderby !== undefined) {
             orderby = JSON.parse(orderby)
             if (orderby["keyword"] === undefined && orderby["direction"] === undefined) {
                 response.status(400).send({error: "orderby keyword and direction (ASC, DESC) must be specified"})
@@ -293,19 +302,22 @@ app.get("/persons", (request, response) => {
         }).catch((error) => {
             response.status(error.code).send({error: error.error});
         })
+    }).catch((error) => {
+        response.status(error.code).send({error: error.error})
+        return
     })
 
 
 })
 
 app.get("/person/:id", (request, response) => {
-  const id = parseInt(request.params.id);
+    const id = parseInt(request.params.id);
 
-  getPerson(id).then((person) => {
-      response.send(person);
-  }).catch((error) => {
-      response.status(error.code).send({error: error.error});
-  })
+    getPerson(id).then((person) => {
+        response.send(person);
+    }).catch((error) => {
+        response.status(error.code).send({error: error.error});
+    })
 });
 
 app.get("/rooms/:id", (request, response) => {
@@ -321,18 +333,18 @@ app.get("/rooms/:id", (request, response) => {
 //ToDO: Rework, add token verification
 
 app.get("/classes/:id", (req, res) => {
-  const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id);
 
-  getClass(id).then((classObject) => {
-      res.send(classObject);
-  }).catch(error => {
-      res.status(error.code).send({error: error.error});
-  })
+    getClass(id).then((classObject) => {
+        res.send(classObject);
+    }).catch(error => {
+        res.status(error.code).send({error: error.error});
+    })
 });
 
 app.get("/classes", (req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
-    if (orderby !== undefined){
+    if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
         if (orderby["keyword"] === undefined && orderby["direction"] === undefined) {
             res.status(400).send({error: "orderby keyword and direction (ASC, DESC) must be specified"})
@@ -348,7 +360,7 @@ app.get("/classes", (req, res) => {
 
 app.get("/rooms", (req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
-    if (orderby !== undefined){
+    if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
         if (orderby["keyword"] === undefined && orderby["direction"] === undefined) {
             res.status(400).send({error: "orderby keyword and direction (ASC, DESC) must be specified"})
@@ -365,14 +377,14 @@ app.get("/rooms", (req, res) => {
 //ToDO: Rework, add token verification
 app.get("/students", (req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
-    if (orderby!== undefined){
+    if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
         if (orderby["keyword"] === undefined && orderby["direction"] === undefined) {
             res.status(400).send({error: "orderby keyword and direction (ASC, DESC) must be specified"})
             return
         }
     }
-    getStudents(limit, offset,  orderby).then((students) => {
+    getStudents(limit, offset, orderby).then((students) => {
         res.send(students);
     }).catch((error) => {
         res.status(error.code).send({error: error.error});
@@ -393,14 +405,16 @@ app.get('/login', (req, res) => {
 
 
 const tokenChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%"
+
 function randomInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1) + min)
 }
+
 function updateToken(id) {
     return new Promise((resolve, reject) => {
 
         query("SELECT * FROM person WHERE id =?", [id]).then((results, fields) => {
-            if (results.length === 0){
+            if (results.length === 0) {
                 reject({code: 404, error: "Person not found"});
             }
             let token = ""
@@ -417,7 +431,7 @@ function updateToken(id) {
                 }
                 logger.log_warning("Query String: " + queryString)
 
-                query(queryString, [token, id]).then(()=>{
+                query(queryString, [token, id]).then(() => {
                     resolve(token);
                 }).catch(error => {
                     reject(error);
@@ -439,7 +453,6 @@ app.put('/login', (req, res) => {
         res.status(415).send({error: "Content type must be application/json"})
         return
     }
-
 
 
     if (!(req.body instanceof Object)) {
