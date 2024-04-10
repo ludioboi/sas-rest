@@ -16,11 +16,11 @@ try {
     express = require("express")
     logger = require("./logger.js")
 } catch (error) {
-    console.error("Could not load libraries. Error: " + error)
+    console.error("Could not load libraries. " + error)
     console.log("exiting...")
     process.exit(-1)
 }
-logger.log_info("Loaded libraries")
+logger.info("Loaded libraries")
 
 // Settings and infos as const
 const WEBSOCKET_PORT = 1234
@@ -54,9 +54,8 @@ database = mysql.createPool(config)
 
 //On query, a new connection to the database is created
 database.on('connection', (connection) => {
-    logger.log_info("Connected with thread id " + connection.threadId)
     connection.on('error', (error) => {
-        logger.log_error("Error on thread id " + connection.threadId + ": " + error)
+        logger.error("Error on thread id " + connection.threadId + ": " + error)
     })
 })
 
@@ -235,7 +234,7 @@ function getClasses(limit, offset, orderby) {
     })
 }
 
-function getAuthorizaionByToken(token) {
+function getAuthorizationByToken(token) {
     return new Promise((resolve, reject) => {
         query("SELECT * FROM authorization where token = ?", [token]).then((results) => {
             if (results.length === 0) {
@@ -255,15 +254,13 @@ function getAuthorizaionByToken(token) {
     })
 }
 
-
 function checkAuthorizationLevel(request, level) {
     return new Promise((resolve, reject) => {
-        let token = request.headers["authorization"]
-        if (token === undefined) {
+        let auth = request.headers["authorization"]
+        if (auth === undefined) {
             reject({code: 401, error: "No Authorization Header found"})
-            return;
         } else {
-            getAuthorizaionByToken(token).then((auth) => {
+            getAuthorizationByToken(auth).then((auth) => {
                 if (auth["expires"] !== undefined && auth["expires"] !== null) {
                     let jsDate = new Date(Date.parse(String(auth["expires"])))
                     if (jsDate.getMilliseconds() < Date.now()) {
@@ -273,39 +270,46 @@ function checkAuthorizationLevel(request, level) {
                 }
 
                 if (auth["level"] >= level) {
-                    resolve()
+                    resolve(auth)
                 } else {
                     reject({code: 403, error: "Not allowed"})
                 }
             })
         }
-
-
     })
-
 }
 
-//ToDO: Rework, add token verification
 
 let endpoints = []
-
-function api(call, endpoint, func, permlevel = undefined){
+consoleCallColorFormat = {
+    "get": logger.Colors.FOREGROUND_GREEN + logger.Colors.BRIGHT,
+    "delete": logger.Colors.FOREGROUND_RED + logger.Colors.BRIGHT,
+    "post": logger.Colors.FOREGROUND_YELLOW + logger.Colors.BRIGHT,
+    "put": logger.Colors.FOREGROUND_MAGENTA + logger.Colors.BRIGHT,
+}
+function api(call, endpoint, func, permlevel = undefined) {
     endpoints.push({method: call, endpoint: endpoint, permission: permlevel})
-    app[call](endpoint, (request, response)=>{
-        if (permlevel !== undefined){
-            checkAuthorizationLevel(request, permlevel).then(()=>{
-                func(request, response)
-            }).catch((error)=>{
+    app[call](endpoint, (request, response) => {
+
+        if (permlevel !== undefined) {
+            checkAuthorizationLevel(request, permlevel).then((auth) => {
+                logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} authorized`)
+                func(request, response, auth)
+            }).catch((error) => {
+                logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} declined`)
                 response.status(error.code).send({error: error.error})
             })
         } else {
+            logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} accepted`)
             func(request, response)
         }
     })
 }
 
-api("get", "/me", (request, response)=>{
+api("get", "/me", (request, response, auth) => {
+    let personID = auth.person.id
 
+    response.status(200).send(auth.person)
 }, 1)
 
 api("get", "/persons", (request, response) => {
@@ -345,9 +349,8 @@ api("get", "/rooms/:id", (request, response) => {
 }, 1)
 
 
-
 //ToDO: Rework, add token verification
-api("get", "/classes/:id",(req, res) => {
+api("get", "/classes/:id", (req, res) => {
     const id = parseInt(req.params.id);
 
     getClass(id).then((classObject) => {
@@ -357,7 +360,7 @@ api("get", "/classes/:id",(req, res) => {
     })
 }, 1)
 
-api("get", "/classes",(req, res) => {
+api("get", "/classes", (req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
     if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
@@ -408,10 +411,9 @@ api("get", "/students", (req, res) => {
     })
 }, 2)
 
-api("post", "/login", (req, res) => {
+api("put", "/login", (req, res) => {
     let body = req.body
     let id = body.id, password = body.password
-
 
     getTokenByLogin(id, password).then((token) => {
         res.status(200).send({token: token})
@@ -444,9 +446,9 @@ function updateToken(id) {
 
                 if (results_.length === 0) {
                     queryString = 'INSERT INTO authorization (token, personid, level) VALUES (?,?, 1)'
-                    logger.log_warning("Results are empty")
+                    logger.warning("Results are empty")
                 }
-                logger.log_warning("Query String: " + queryString)
+                logger.warning("Query String: " + queryString)
 
                 query(queryString, [token, id]).then(() => {
                     resolve(token);
@@ -464,7 +466,7 @@ function updateToken(id) {
 }
 
 //ToDO: Rework, add token verification
-api("put", "/login", (req, res) => {
+api("post", "/login", (req, res) => {
 
     if (!req.is("application/json")) {
         res.status(415).send({error: "Content type must be application/json"})

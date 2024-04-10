@@ -64,7 +64,8 @@ function LOG_WARNING(x, timestamp=true) {
 }
 
 module.exports = {
-    "log_info": LOG_INFO,
-    "log_error": LOG_ERROR,
-    "log_warning": LOG_WARNING
+    "info": LOG_INFO,
+    "error": LOG_ERROR,
+    "warning": LOG_WARNING,
+    "Colors": Colors
 }
