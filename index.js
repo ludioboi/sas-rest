@@ -80,6 +80,8 @@ function initMySQL() {
         'password VARCHAR(25) NOT NULL);').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS authorization (personid int not null primary key, token VARCHAR(36) not null, level int not null, expires timestamp null);').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, personid int, classid int);').catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS present_students (personid int not null, classid int not null, date DATE not null, time int not null)")
+    query("CREATE TABLE IF NOT EXISTS timetable (classid int not null, roomid int not null, time int not null, teacherid int not null, subject varchar(16) not null)")
 
 }
 
@@ -137,6 +139,24 @@ function getPerson(id) {
             resolve(results[0])
         }).catch((error) => {
             reject({code: error.code, error: error.error})
+        })
+    })
+}
+
+function getClassByPersonID(id) {
+    return new Promise((resolve, reject)=>{
+        query("SELECT classid FROM students_classes WHERE personid = ?", [id]).then((results ,fields) => {
+            if (results.length === 0){
+                reject({code: 404, "error": `Class not found`})
+                return
+            }
+            getClass(results[0].classid).then(class_ => {
+                resolve(class_)
+            }).catch(error => {
+                reject(error)
+            })
+        }).catch(error => {
+            reject(error)
         })
     })
 }
@@ -306,10 +326,19 @@ function api(call, endpoint, func, permlevel = undefined) {
     })
 }
 
-api("get", "/me", (request, response, auth) => {
-    let personID = auth.person.id
+api("post", "/me/present", (req, res, auth) => {
 
-    response.status(200).send(auth.person)
+}, 1)
+
+api("get", "/me", (request, response, auth) => {
+    let person = auth.person
+    getClassByPersonID(person.id).then(class_ => {
+        person["class"] = class_
+        response.send(person)
+    }).catch(error => {
+        console.log(error)
+        response.send(person)
+    })
 }, 1)
 
 api("get", "/persons", (request, response) => {
