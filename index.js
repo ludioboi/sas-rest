@@ -223,7 +223,6 @@ function getClass(id) {
             let classObject = results[0]
             getPerson(classObject.teacherid).then((teacher) => {
                 classObject.teacher = teacher
-                console.log(classObject)
                 if (classObject.sec_teacherid !== null) {
                     getPerson(classObject.sec_teacherid).then((sec_teacher) => {
                         classObject.sec_teacher = sec_teacher
@@ -443,7 +442,6 @@ api("get", "/students", (req, res) => {
 api("put", "/login", (req, res) => {
     let body = req.body
     let id = body.id, password = body.password
-
     getTokenByLogin(id, password).then((token) => {
         res.status(200).send({token: token})
     }).catch((error) => {
