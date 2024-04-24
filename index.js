@@ -61,13 +61,13 @@ database.on('connection', (connection) => {
 
 //Creates all necessary tables
 function initMySQL() {
-    query('CREATE TABLE IF NOT EXISTS students_classes (personid INT NOT NULL, classid int not null)').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS students_classes (user_id INT NOT NULL, class_id int not null)').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS classes (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'short VARCHAR(15) NOT NULL, ' +
         'description VARCHAR(255), ' +
-        'teacherid INT NOT NULL,' +
-        'sec_teacherid INT);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS person (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
+        'teacher_id INT NOT NULL,' +
+        'sec_teacher_id INT);').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS user (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'firstname VARCHAR(255) NOT NULL, ' +
         'secondname VARCHAR(255), ' +
         'lastname VARCHAR(255) NOT NULL, ' +
@@ -76,27 +76,29 @@ function initMySQL() {
     query('CREATE TABLE IF NOT EXISTS rooms (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'short VARCHAR(15) NOT NULL, ' +
         'description VARCHAR(255));').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS credentials (personid INT NOT NULL PRIMARY KEY, ' +
+    query('CREATE TABLE IF NOT EXISTS credentials (user_id INT NOT NULL PRIMARY KEY, ' +
         'password VARCHAR(25) NOT NULL);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS authorization (personid int not null primary key, token VARCHAR(36) not null, level int not null, expires timestamp null);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, personid int, classid int);').catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS present_students (personid int not null, classid int not null, date DATE not null, time int not null)")
-    query("CREATE TABLE IF NOT EXISTS timetable (classid int not null, roomid int not null, time int not null, teacherid int not null, subject varchar(16) not null)")
+    query('CREATE TABLE IF NOT EXISTS authorization (user_id int not null primary key, token VARCHAR(36) not null, level int not null, expires timestamp null);').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, user_id int, class_id int);').catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS present_students (user_id int not null, class_id int not null, date DATE not null, time int not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS timetable (class_id int not null, room_id int not null, time_id int not null, teacher_id int not null, subject varchar(16) not null, day VARCHAR(5) not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS substition (class_id int not null, room_id int not null, time_id int not null, teacher_id int, subject varchar(16), day VARCHAR(5) not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS times (id int not null, time int not null)").catch(error => console.error(error))
 
 }
 
 initMySQL()
 
-function getPersonIDByShortKey(short, classid) {
+function getuser_idByShortKey(short, class_id) {
     return new Promise((resolve, reject) => {
-        query('SELECT * FROM short_keys WHERE short = ? AND classid = ?', [short, classid]).then((results, fields) => {
+        query('SELECT * FROM short_keys WHERE short = ? AND class_id = ?', [short, class_id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
                 return
             }
-            resolve(results[0].personid)
+            resolve(results[0].user_id)
         }).catch((error) => {
-            reject({code: error.code, error: error.error})
+            reject(error)
         })
     })
 }
@@ -105,13 +107,13 @@ function getTokenByLogin(id, password) {
     return new Promise((resolve, reject) => {
         query(`SELECT *
                FROM credentials
-               WHERE personid = ?`, [id]).then((results, fields) => {
+               WHERE user_id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
                 return
             }
             if (results[0].password === password) {
-                query('SELECT token FROM authorization WHERE personid =?', [id]).then((results, fields) => {
+                query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
                     if (results.length === 0) {
                         reject({code: 404, error: "Token not found"})
                         return
@@ -122,15 +124,15 @@ function getTokenByLogin(id, password) {
                 reject({code: 401, error: "Wrong password"})
             }
         }).catch((error) => {
-            reject({code: error.code, error: error.error})
+            reject(error)
         })
     })
 }
 
-function getPerson(id) {
+function getuser(id) {
     return new Promise((resolve, reject) => {
         query(`SELECT *
-               FROM person
+               FROM user
                WHERE id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
@@ -138,19 +140,19 @@ function getPerson(id) {
             }
             resolve(results[0])
         }).catch((error) => {
-            reject({code: error.code, error: error.error})
+            reject(error)
         })
     })
 }
 
-function getClassByPersonID(id) {
-    return new Promise((resolve, reject)=>{
-        query("SELECT classid FROM students_classes WHERE personid = ?", [id]).then((results ,fields) => {
-            if (results.length === 0){
+function getClassByuser_id(id) {
+    return new Promise((resolve, reject) => {
+        query("SELECT class_id FROM students_classes WHERE user_id = ?", [id]).then((results, fields) => {
+            if (results.length === 0) {
                 reject({code: 404, "error": `Class not found`})
                 return
             }
-            getClass(results[0].classid).then(class_ => {
+            getClass(results[0].class_id).then(class_ => {
                 resolve(class_)
             }).catch(error => {
                 reject(error)
@@ -161,24 +163,24 @@ function getClassByPersonID(id) {
     })
 }
 
-function getPersons(limit, offset, orderby) {
+function getusers(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
-        let queryString = "SELECT * FROM person" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
+        let queryString = "SELECT * FROM user" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
         query(queryString).then((results, fields) => {
             resolve(results);
         }).catch((error) => {
-            reject({code: error.code, error: error.error});
+            reject(error);
         })
     })
 }
 
 function getStudents(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
-        let queryString = "SELECT * FROM person where role = 1" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
+        let queryString = "SELECT * FROM user where role = 1" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
         query(queryString).then((results, fields) => {
             resolve(results);
         }).catch((error) => {
-            reject({code: error.code, error: error.error});
+            reject(error);
         })
     })
 }
@@ -194,7 +196,7 @@ function getRoom(id) {
             }
             resolve(results[0])
         }).catch((error) => {
-            reject({code: error.code, error: error.error})
+            reject(error)
         })
     })
 }
@@ -205,7 +207,7 @@ function getRooms(limit, offset, orderby) {
         query(queryString).then((results, fields) => {
             resolve(results);
         }).catch((error) => {
-            reject({code: error.code, error: error.error});
+            reject(error);
         })
     })
 }
@@ -221,23 +223,23 @@ function getClass(id) {
             }
 
             let classObject = results[0]
-            getPerson(classObject.teacherid).then((teacher) => {
+            getuser(classObject.teacher_id).then((teacher) => {
                 classObject.teacher = teacher
-                if (classObject.sec_teacherid !== null) {
-                    getPerson(classObject.sec_teacherid).then((sec_teacher) => {
+                if (classObject.sec_teacher_id !== null) {
+                    getuser(classObject.sec_teacher_id).then((sec_teacher) => {
                         classObject.sec_teacher = sec_teacher
                         resolve(classObject)
                     }).catch((error) => {
-                        reject({code: error.code, error: error.error})
+                        reject(error)
                     })
                 } else {
                     resolve(classObject)
                 }
             }).catch((error) => {
-                reject({code: error.code, error: error.error})
+                reject(error)
             })
         }).catch((error) => {
-            reject({code: error.code, error: error.error})
+            reject(error)
         })
     })
 }
@@ -261,8 +263,8 @@ function getAuthorizationByToken(token) {
                 return
             }
             let entry = results[0]
-            getPerson(entry["personid"]).then((person) => {
-                entry["person"] = person
+            getuser(entry["user_id"]).then((user) => {
+                entry["user"] = user
                 resolve(entry)
             }).catch(() => {
                 resolve(entry)
@@ -270,6 +272,61 @@ function getAuthorizationByToken(token) {
         }).catch((error) => {
             reject(error)
         })
+    })
+}
+
+let daysOfTheWeek = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+let oneSchoolHourInMillis = 1000 * 60 * 45
+
+function getCurrentSubjectByClassID(id) {
+    let date = new Date(Date.now())
+    let currentTime = date.getTime()
+    return new Promise((resolve, reject) => {
+        query("SELECT * FROM timetable AS tab, times AS t WHERE class_id = ? AND day = ? AND tab.time_id = t.id AND t.time >= ? AND t.time + ? <= ?", [id, daysOfTheWeek[date.getDay()], currentTime, oneSchoolHourInMillis, currentTime]).then((results) => {
+
+        }).catch((error) => {
+            reject(error)
+        })
+    })
+}
+
+function getTodaysScheduleByClassID(id) {
+    return new Promise((resolve, reject) => {
+        let currentDay = daysOfTheWeek[new Date(Date.now()).getDay()]
+        query("SELECT * FROM timetable WHERE class_id = ? AND day = ?", [id, currentDay]).then((results_1 => {
+            query("SELECT * FROM substition WHERE class_id = ? AND day = ?", [id, currentDay]).then(results_2 => {
+                if (results_2.length === 0) {
+                    resolve(results_1)
+                } else {
+                    for (i = 0; i < results_2.length; i++) {
+                        for (j = 0; j < results_1.length; j++) {
+                            if (results_2[i].class_id === results_1[j].class_id && results_2[i].time === results_1[j].time) {
+                                results_1[j] = results_2[i]
+                            }
+                        }
+                    }
+                    resolve(results_1)
+                }
+            })
+        })).catch(error => {
+            reject(error)
+        })
+    })
+}
+
+function getTodayScheduleByuser_id(id) {
+
+    return new Promise((resolve, reject) => {
+        getClassByuser_id(id).then((class_) => {
+            getTodaysScheduleByClassID(class_.id).then((schedule) => {
+                resolve(schedule)
+            }).catch((error) => {
+                reject(error)
+            })
+        }).catch((error) => {
+            reject(error)
+        })
+
     })
 }
 
@@ -306,6 +363,7 @@ consoleCallColorFormat = {
     "post": logger.Colors.FOREGROUND_YELLOW + logger.Colors.BRIGHT,
     "put": logger.Colors.FOREGROUND_MAGENTA + logger.Colors.BRIGHT,
 }
+
 function api(call, endpoint, func, permlevel = undefined) {
     endpoints.push({method: call, endpoint: endpoint, permission: permlevel})
     app[call](endpoint, (request, response) => {
@@ -329,18 +387,25 @@ api("post", "/me/present", (req, res, auth) => {
 
 }, 1)
 
-api("get", "/me", (request, response, auth) => {
-    let person = auth.person
-    getClassByPersonID(person.id).then(class_ => {
-        person["class"] = class_
-        response.send(person)
-    }).catch(error => {
-        console.log(error)
-        response.send(person)
+api("get", "/me/schedule/", (req, res, auth) => {
+    console.log(auth)
+    getTodayScheduleByuser_id(auth.user_id).then((schedule) => {
+        res.send(schedule)
     })
 }, 1)
 
-api("get", "/persons", (request, response) => {
+api("get", "/me", (request, response, auth) => {
+    let user = auth.user
+    getClassByuser_id(user.id).then(class_ => {
+        user["class"] = class_
+        response.send(user)
+    }).catch(error => {
+        console.log(error)
+        response.send(user)
+    })
+}, 1)
+
+api("get", "/users", (request, response) => {
     let limit = request.query.limit, offset = request.query.offset, orderby = request.query.orderby;
     if (orderby !== undefined) {
         orderby = JSON.parse(orderby)
@@ -349,18 +414,18 @@ api("get", "/persons", (request, response) => {
             return
         }
     }
-    getPersons(limit, offset, orderby).then((persons) => {
-        response.send(persons);
+    getusers(limit, offset, orderby).then((users) => {
+        response.send(users);
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
     })
 }, 2)
 
-api("get", "/persons/:id", (request, response) => {
+api("get", "/users/:id", (request, response) => {
     const id = parseInt(request.params.id);
 
-    getPerson(id).then((person) => {
-        response.send(person);
+    getuser(id).then((user) => {
+        response.send(user);
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
     })
@@ -369,8 +434,8 @@ api("get", "/persons/:id", (request, response) => {
 api("get", "/rooms/:id", (request, response) => {
     const id = parseInt(request.params.id);
 
-    getRoom(id).then((person) => {
-        response.send(person);
+    getRoom(id).then((user) => {
+        response.send(user);
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
     })
@@ -459,20 +524,20 @@ function randomInt(min, max) {
 function updateToken(id) {
     return new Promise((resolve, reject) => {
 
-        query("SELECT * FROM person WHERE id =?", [id]).then((results, fields) => {
+        query("SELECT * FROM user WHERE id =?", [id]).then((results, fields) => {
             if (results.length === 0) {
-                reject({code: 404, error: "Person not found"});
+                reject({code: 404, error: "user not found"});
             }
             let token = ""
             for (let i = 0; i < 36; i++) {
                 token += tokenChars[randomInt(0, tokenChars.length - 1)]
             }
-            query("select * from authorization WHERE personid =?", [id]).then((results_, fields_) => {
+            query("select * from authorization WHERE user_id =?", [id]).then((results_, fields_) => {
 
-                let queryString = 'UPDATE authorization SET token =? WHERE personid =?'
+                let queryString = 'UPDATE authorization SET token =? WHERE user_id =?'
 
                 if (results_.length === 0) {
-                    queryString = 'INSERT INTO authorization (token, personid, level) VALUES (?,?, 1)'
+                    queryString = 'INSERT INTO authorization (token, user_id, level) VALUES (?,?, 1)'
                     logger.warning("Results are empty")
                 }
                 logger.warning("Query String: " + queryString)
@@ -510,16 +575,16 @@ api("post", "/login", (req, res) => {
         return
     }
 
-    query("SELECT * FROM person WHERE id =?", [req.body.id]).then((results, fields) => {
+    query("SELECT * FROM user WHERE id =?", [req.body.id]).then((results, fields) => {
         if (results.length === 0) {
             res.status(404).send({error: "Student not found"})
             return
         }
 
-        query('SELECT * from credentials WHERE personid =?', [req.body.id]).then((results_, fields_) => {
-            let queryString = "UPDATE credentials SET password =? WHERE personid =?"
+        query('SELECT * from credentials WHERE user_id =?', [req.body.id]).then((results_, fields_) => {
+            let queryString = "UPDATE credentials SET password =? WHERE user_id =?"
             if (results_.length === 0) {
-                queryString = "INSERT INTO credentials (password, personid) VALUES (?,?)"
+                queryString = "INSERT INTO credentials (password, user_id) VALUES (?,?)"
             }
             query(queryString, [req.body.password, req.body.id]).then(() => {
                 updateToken(req.body.id).then(token => {
@@ -539,12 +604,12 @@ api("post", "/login", (req, res) => {
 
 api("get", "/students/:id/class", (req, res) => {
     const studentID = parseInt(req.params.id);
-    query("SELECT classid FROM students_classes WHERE personid = ?", [studentID]).then((results, fields) => {
+    query("SELECT class_id FROM students_classes WHERE user_id = ?", [studentID]).then((results, fields) => {
         if (results.length === 0) {
             res.status(404).send({error: "Entry not found"})
             return
         }
-        getClass(results[0].classid).then(classData => {
+        getClass(results[0].class_id).then(classData => {
             res.status(200).send(classData);
         }).catch(error => {
             res.status(error.code).send({error: error.error})
@@ -555,10 +620,10 @@ api("get", "/students/:id/class", (req, res) => {
 }, 1)
 
 
-api("get", "/shortkey/:classid/:short", (req, res) => {
-    let classid = parseInt(req.params.classid), short = req.params.short;
-    getPersonIDByShortKey(short, classid).then(personID => {
-        res.status(200).send({personID: personID})
+api("get", "/shortkey/:class_id/:short", (req, res) => {
+    let class_id = parseInt(req.params.class_id), short = req.params.short;
+    getuser_idByShortKey(short, class_id).then(user_id => {
+        res.status(200).send({user_id: user_id})
     }).catch((error) => res.status(error.code).send({error: error.error}))
 })
 
