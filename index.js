@@ -71,19 +71,20 @@ function initMySQL() {
         'firstname VARCHAR(255) NOT NULL, ' +
         'secondname VARCHAR(255), ' +
         'lastname VARCHAR(255) NOT NULL, ' +
-        'short VARCHAR(5), ' +
+        'short_name VARCHAR(5), ' +
         'role int not null);').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS rooms (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'short VARCHAR(15) NOT NULL, ' +
         'description VARCHAR(255));').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS credentials (user_id INT NOT NULL PRIMARY KEY, ' +
         'password VARCHAR(25) NOT NULL);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS authorization (user_id int not null primary key, token VARCHAR(36) not null, level int not null, expires timestamp null);').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS authorization (user_id int not null primary key, token VARCHAR(36) not null, level int not null, expires int null);').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, user_id int, class_id int);').catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS present_students (user_id int not null, class_id int not null, date DATE not null, time int not null)").catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS timetable (class_id int not null, room_id int not null, time_id int not null, teacher_id int not null, subject varchar(16) not null, day VARCHAR(5) not null)").catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS substition (class_id int not null, room_id int not null, time_id int not null, teacher_id int, subject varchar(16), day VARCHAR(5) not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS timetable (class_id int not null, room_id int not null, time_id int not null, teacher_id int not null, subject varchar(16) not null, day VARCHAR(5) not null, double_lesson boolean)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS substition (class_id int not null, room_id int not null, time_id int not null, teacher_id int, subject varchar(16), day VARCHAR(5) not null, double_lesson boolean)").catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS times (id int not null, time int not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS presence (user_id int not null, time_id int not null, date int not null)").catch(error => console.error(error))
+
 
 }
 
@@ -244,6 +245,10 @@ function getClass(id) {
     })
 }
 
+function setStudentPresence(user_id, clas_id, date, time_id, present_to){
+
+}
+
 function getClasses(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
         let queryString = "SELECT * FROM classes" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
@@ -276,14 +281,17 @@ function getAuthorizationByToken(token) {
 }
 
 let daysOfTheWeek = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+let bla = 28800000
 let oneSchoolHourInMillis = 1000 * 60 * 45
 
 function getCurrentSubjectByClassID(id) {
     let date = new Date(Date.now())
-    let currentTime = date.getTime()
+    let currentTime = 1000 * 60 * 60 * date.getHours() + 1000 * 60 * date.getMinutes()
     return new Promise((resolve, reject) => {
-        query("SELECT * FROM timetable AS tab, times AS t WHERE class_id = ? AND day = ? AND tab.time_id = t.id AND t.time >= ? AND t.time + ? <= ?", [id, daysOfTheWeek[date.getDay()], currentTime, oneSchoolHourInMillis, currentTime]).then((results) => {
-
+        let vars = [id, daysOfTheWeek[date.getDay()], currentTime, currentTime]
+        console.log(vars)
+        query("SELECT tab.* FROM timetable AS tab, times AS t WHERE class_id = ? AND day = ? AND tab.time_id = t.id AND t.time <= ? AND t.time + IF (tab.double_lesson, 2 * 2700000, 2700000) >= ?", vars).then((results) => {
+            resolve(results[0])
         }).catch((error) => {
             reject(error)
         })
@@ -338,8 +346,8 @@ function checkAuthorizationLevel(request, level) {
         } else {
             getAuthorizationByToken(auth).then((auth) => {
                 if (auth["expires"] !== undefined && auth["expires"] !== null) {
-                    let jsDate = new Date(Date.parse(String(auth["expires"])))
-                    if (jsDate.getMilliseconds() < Date.now()) {
+                    let expiresDateInMillis = auth["expires"]
+                    if (expiresDateInMillis < Date.now()) {
                         reject({code: 403, error: "Token expired"})
                         return
                     }
@@ -387,6 +395,14 @@ api("post", "/me/present", (req, res, auth) => {
 
 }, 1)
 
+api("get", "/me/schedule/current_subject/", (req, res, auth) => {
+    getClassByuser_id(auth.user.id).then(class_ => {
+        getCurrentSubjectByClassID(class_.id).then(subject => {
+            res.send(subject)
+        }).catch(error => res.status(error.code).send(error.error))
+    }).catch(error => res.status(error.code).send(error.error))
+}, 1)
+
 api("get", "/me/schedule/", (req, res, auth) => {
     console.log(auth)
     getTodayScheduleByuser_id(auth.user_id).then((schedule) => {
@@ -400,7 +416,6 @@ api("get", "/me", (request, response, auth) => {
         user["class"] = class_
         response.send(user)
     }).catch(error => {
-        console.log(error)
         response.send(user)
     })
 }, 1)
@@ -538,10 +553,7 @@ function updateToken(id) {
 
                 if (results_.length === 0) {
                     queryString = 'INSERT INTO authorization (token, user_id, level) VALUES (?,?, 1)'
-                    logger.warning("Results are empty")
                 }
-                logger.warning("Query String: " + queryString)
-
                 query(queryString, [token, id]).then(() => {
                     resolve(token);
                 }).catch(error => {
@@ -551,11 +563,13 @@ function updateToken(id) {
         }).catch(error => {
             reject(error);
         })
-
     })
+}
 
+function createUser(firstname, secondname, lastname, role, short_name ){
 
 }
+
 
 //ToDO: Rework, add token verification
 api("post", "/login", (req, res) => {
