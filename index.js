@@ -79,18 +79,18 @@ function initMySQL() {
     query('CREATE TABLE IF NOT EXISTS credentials (user_id INT NOT NULL PRIMARY KEY, ' +
         'password VARCHAR(25) NOT NULL);').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS authorization (user_id int not null primary key, token VARCHAR(36) not null, level int not null, expires int null);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, user_id int, class_id int);').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, user_id int);').catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS timetable (class_id int not null, room_id int not null, time_id int not null, teacher_id int not null, subject varchar(16) not null, day VARCHAR(5) not null, double_lesson boolean)").catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS substition (class_id int not null, room_id int not null, time_id int not null, teacher_id int, subject varchar(16), day VARCHAR(5) not null, double_lesson boolean)").catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS times (id int not null, time int not null)").catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS presence (user_id int not null, time_id int not null, date int not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS substition (class_id int not null, room_id int not null, time_id int not null, teacher_id int, subject varchar(16), day VARCHAR(5) not null, date int not null, double_lesson boolean)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS times (time_id int not null, start_time int not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS presence (user_id int not null, time_id int not null, date int not null, present_from int not null, present_until int not null)").catch(error => console.error(error))
 
 
 }
 
 initMySQL()
 
-function getuser_idByShortKey(short, class_id) {
+function getUserIdByShortKey(short, class_id) {
     return new Promise((resolve, reject) => {
         query('SELECT * FROM short_keys WHERE short = ? AND class_id = ?', [short, class_id]).then((results, fields) => {
             if (results.length === 0) {
@@ -130,7 +130,7 @@ function getTokenByLogin(id, password) {
     })
 }
 
-function getuser(id) {
+function getUser(id) {
     return new Promise((resolve, reject) => {
         query(`SELECT *
                FROM user
@@ -146,7 +146,7 @@ function getuser(id) {
     })
 }
 
-function getClassByuser_id(id) {
+function getClassByUserID(id) {
     return new Promise((resolve, reject) => {
         query("SELECT class_id FROM students_classes WHERE user_id = ?", [id]).then((results, fields) => {
             if (results.length === 0) {
@@ -164,7 +164,7 @@ function getClassByuser_id(id) {
     })
 }
 
-function getusers(limit, offset, orderby) {
+function getUsers(limit, offset, orderby) {
     return new Promise((resolve, reject) => {
         let queryString = "SELECT * FROM user" + (orderby !== undefined ? " ORDER BY " + orderby.keyword + " " + orderby.direction : "") + (limit !== undefined ? " LIMIT " + limit : "") + (offset !== undefined ? " OFFSET " + offset : "");
         query(queryString).then((results, fields) => {
@@ -224,10 +224,10 @@ function getClass(id) {
             }
 
             let classObject = results[0]
-            getuser(classObject.teacher_id).then((teacher) => {
+            getUser(classObject.teacher_id).then((teacher) => {
                 classObject.teacher = teacher
                 if (classObject.sec_teacher_id !== null) {
-                    getuser(classObject.sec_teacher_id).then((sec_teacher) => {
+                    getUser(classObject.sec_teacher_id).then((sec_teacher) => {
                         classObject.sec_teacher = sec_teacher
                         resolve(classObject)
                     }).catch((error) => {
@@ -245,8 +245,20 @@ function getClass(id) {
     })
 }
 
-function setStudentPresence(user_id, clas_id, date, time_id, present_to){
-
+function setStudentPresence(user_id, class_id, date, time_id, present_from, present_until) {
+    return new Promise((resolve, reject) => {
+        query("SELECT * FROM presence WHERE user_id = ? AND class_id = ? AND date = ? AND time_id = ?", [user_id, class_id, date, time_id]).then((results) => {
+            if (results === 0) {
+                query("INSERT INTO presence (user_id, class_id, date, date, time_id, present_until) VALUES (?, ?, ?, ?, ?, ?)", [user_id, class_id, date, time_id, present_from, present_until]).then(() => {
+                    resolve()
+                }).catch(error => reject(error))
+            } else {
+                query("UPDATE presence SET present_until = ? WHERE user_id = ? AND class_id = ? AND date = ? AND time_id = ?", [user_id, class_id, date, time_id, present_until]).then(() => {
+                    resolve()
+                }).catch(error => reject(error))
+            }
+        }).catch(error => reject(error))
+    })
 }
 
 function getClasses(limit, offset, orderby) {
@@ -268,7 +280,7 @@ function getAuthorizationByToken(token) {
                 return
             }
             let entry = results[0]
-            getuser(entry["user_id"]).then((user) => {
+            getUser(entry["user_id"]).then((user) => {
                 entry["user"] = user
                 resolve(entry)
             }).catch(() => {
@@ -280,52 +292,59 @@ function getAuthorizationByToken(token) {
     })
 }
 
-let daysOfTheWeek = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-let bla = 28800000
-let oneSchoolHourInMillis = 1000 * 60 * 45
+let daysOfTheWeek = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
+function getSubjectsByClassIDAndDate(class_id, date){
+    return new Promise((resolve, reject) => {
+            let dayString = daysOfTheWeek[date.getDay()]
+            let dateMillis = new Date(date.getTime() - (date.getTime() % 86400000)).getTime() // Get only date without hours in millis
+            query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id ORDER BY tab.time_id AND tab.room_id = rooms.id ASC", [class_id, dayString]).then((results_1 => {
+                query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id ORDER BY tab.time_id AND tab.room_id = rooms.id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
+                    if (results_2.length === 0) {
+                        resolve(results_1)
+                    } else {
+                        for (i = 0; i < results_2.length; i++) {
+                            for (j = 0; j < results_1.length; j++) {
+                                if (results_2[i].time_id === results_1[j].time_id) {
+                                    results_1[j] = results_2[i]
+                                }
+                            }
+                        }
+                        for (i = 0; i < results_1.length; i++){
+                            if (results_1[i].double_lesson === 1){
+                                subject[i]["end_time"] = subject[i]["start_time"] + 2 * 2700000
+                            } else {
+                                subject[i]["end_time"] = subject[i]["start_time"] + 2700000
+                            }
+                        }
+                        resolve(results_1)
+                    }
+                }).catch((error) => {
+                    reject(error)
+                })
+            })).catch(error => {
+                reject(error)
+            })
+        })
+}
 
 function getCurrentSubjectByClassID(id) {
-    let date = new Date(Date.now())
-    let currentTime = 1000 * 60 * 60 * date.getHours() + 1000 * 60 * date.getMinutes()
-    return new Promise((resolve, reject) => {
-        let vars = [id, daysOfTheWeek[date.getDay()], currentTime, currentTime]
-        console.log(vars)
-        query("SELECT tab.* FROM timetable AS tab, times AS t WHERE class_id = ? AND day = ? AND tab.time_id = t.id AND t.time <= ? AND t.time + IF (tab.double_lesson, 2 * 2700000, 2700000) >= ?", vars).then((results) => {
-            resolve(results[0])
-        }).catch((error) => {
-            reject(error)
-        })
-    })
+getSubjectsByClassIDAndDate()
 }
 
 function getTodaysScheduleByClassID(id) {
     return new Promise((resolve, reject) => {
-        let currentDay = daysOfTheWeek[new Date(Date.now()).getDay()]
-        query("SELECT * FROM timetable WHERE class_id = ? AND day = ?", [id, currentDay]).then((results_1 => {
-            query("SELECT * FROM substition WHERE class_id = ? AND day = ?", [id, currentDay]).then(results_2 => {
-                if (results_2.length === 0) {
-                    resolve(results_1)
-                } else {
-                    for (i = 0; i < results_2.length; i++) {
-                        for (j = 0; j < results_1.length; j++) {
-                            if (results_2[i].class_id === results_1[j].class_id && results_2[i].time === results_1[j].time) {
-                                results_1[j] = results_2[i]
-                            }
-                        }
-                    }
-                    resolve(results_1)
-                }
-            })
-        })).catch(error => {
-            reject(error)
-        })
+       getSubjectsByClassIDAndDate(id, new Date()).then((subjects) => {
+           resolve(subjects)
+       }).catch((error) => {
+           reject(error)
+       })
     })
 }
 
-function getTodayScheduleByuser_id(id) {
-
+function getTodayScheduleByUserID(id) {
     return new Promise((resolve, reject) => {
-        getClassByuser_id(id).then((class_) => {
+        getClassByUserID(id).then((class_) => {
             getTodaysScheduleByClassID(class_.id).then((schedule) => {
                 resolve(schedule)
             }).catch((error) => {
@@ -392,11 +411,29 @@ function api(call, endpoint, func, permlevel = undefined) {
 }
 
 api("post", "/me/present", (req, res, auth) => {
+    getClassByUserID(auth.user_id).then(classObject => {
+        let currentDate = new Date(new Date().getTime() - (new Date().getTime() % 86400000)).getTime()
+        let date = new Date()
+        let currentTime = 1000 * 60 * 60 * date.getHours() + 1000 * 60 * date.getMinutes()
+        getCurrentSubjectByClassID(classObject.id).then(subject => {
+            if (subject !== undefined) {
+                setStudentPresence(auth.user_id, classObject.id, currentDate, subject.time_id, currentTime, subject.ends).then(() => {
+                    res.status(200).send({message: "Marked student as present"})
+                }).catch(error => {
+                    res.status(error.code).send(error)
+                })
+            } else {
+                res.status(404).send({error: "Theres no active subject for class id " + classObject.id})
+            }
+        }).catch(error => {
+            res.status(error.code).send(error.error)
+        })
+    })
 
 }, 1)
 
 api("get", "/me/schedule/current_subject/", (req, res, auth) => {
-    getClassByuser_id(auth.user.id).then(class_ => {
+    getClassByUserID(auth.user.id).then(class_ => {
         getCurrentSubjectByClassID(class_.id).then(subject => {
             res.send(subject)
         }).catch(error => res.status(error.code).send(error.error))
@@ -405,14 +442,16 @@ api("get", "/me/schedule/current_subject/", (req, res, auth) => {
 
 api("get", "/me/schedule/", (req, res, auth) => {
     console.log(auth)
-    getTodayScheduleByuser_id(auth.user_id).then((schedule) => {
+    getTodayScheduleByUserID(auth.user_id).then((schedule) => {
         res.send(schedule)
+    }).catch(error => {
+        res.status(error.code).send(error)
     })
 }, 1)
 
 api("get", "/me", (request, response, auth) => {
     let user = auth.user
-    getClassByuser_id(user.id).then(class_ => {
+    getClassByUserID(user.id).then(class_ => {
         user["class"] = class_
         response.send(user)
     }).catch(error => {
@@ -429,7 +468,7 @@ api("get", "/users", (request, response) => {
             return
         }
     }
-    getusers(limit, offset, orderby).then((users) => {
+    getUsers(limit, offset, orderby).then((users) => {
         response.send(users);
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
@@ -439,7 +478,7 @@ api("get", "/users", (request, response) => {
 api("get", "/users/:id", (request, response) => {
     const id = parseInt(request.params.id);
 
-    getuser(id).then((user) => {
+    getUser(id).then((user) => {
         response.send(user);
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
@@ -457,7 +496,6 @@ api("get", "/rooms/:id", (request, response) => {
 }, 1)
 
 
-//ToDO: Rework, add token verification
 api("get", "/classes/:id", (req, res) => {
     const id = parseInt(req.params.id);
 
@@ -501,7 +539,6 @@ api("get", "/rooms", (req, res) => {
     })
 }, 1)
 
-//ToDO: Rework, add token verification
 
 api("get", "/students", (req, res) => {
     let limit = req.query.limit, offset = req.query.offset, orderby = req.query.orderby;
@@ -566,7 +603,7 @@ function updateToken(id) {
     })
 }
 
-function createUser(firstname, secondname, lastname, role, short_name ){
+function createUser(firstname, secondname, lastname, role, short_name) {
 
 }
 
@@ -636,7 +673,7 @@ api("get", "/students/:id/class", (req, res) => {
 
 api("get", "/shortkey/:class_id/:short", (req, res) => {
     let class_id = parseInt(req.params.class_id), short = req.params.short;
-    getuser_idByShortKey(short, class_id).then(user_id => {
+    getUserIdByShortKey(short, class_id).then(user_id => {
         res.status(200).send({user_id: user_id})
     }).catch((error) => res.status(error.code).send({error: error.error}))
 })
