@@ -329,7 +329,18 @@ function getSubjectsByClassIDAndDate(class_id, date){
 }
 
 function getCurrentSubjectByClassID(id) {
-getSubjectsByClassIDAndDate()
+    let currentDate = new Date()
+    return new Promise((resolve, reject) => {
+        getSubjectsByClassIDAndDate(id, currentDate).then(subjects => {
+            let currentTimeMillis = 1000 * 60 * 60 * currentDate.getHours() + 1000 * 60 * currentDate.getMinutes()
+            for (i = 0; i < subjets.length; i++){
+                if (subjects[i].start_time < currentTimeMillis && subjects[i].end_time > currentTimeMillis){
+                    resolve(subjects[i])
+                    break;
+                }
+            }
+        })
+    })
 }
 
 function getTodaysScheduleByClassID(id) {
