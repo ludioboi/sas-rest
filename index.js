@@ -283,10 +283,18 @@ function getAuthorizationByToken(token) {
             getUser(entry["user_id"]).then((user) => {
                 entry["user"] = user
                 resolve(entry)
-            }).catch(() => {
-                resolve(entry)
+            }).catch((error) => {
+                //ToDo: Remove
+                console.log("Zeile 287")
+                console.log(error)
+                //resolve(entry)
+                reject(error)
             })
         }).catch((error) => {
+            //ToDo: Remove
+
+            console.log("Zeile 291")
+            console.log(error)
             reject(error)
         })
     })
@@ -388,11 +396,36 @@ function checkAuthorizationLevel(request, level) {
                 } else {
                     reject({code: 403, error: "Not allowed"})
                 }
+            }).catch(error => {
+                //ToDo: Remove
+                console.log(397)
+                console.log(error)
+                reject(error)
             })
         }
     })
 }
 
+
+function setStudentsClass(user_id, class_id){
+    return new Promise((resolve, reject) => {
+        query("INSERT INTO students_classes" +
+        "(user_id, class_id)" +
+        " VALUES " +
+        "(?, ?)" +
+        "ON DUPLICATE KEY UPDATE " +
+        "class_id = ?", [user_id, class_id, class_id]).then(results => {
+            //ToDo: Remove
+
+            console.log(results)
+            resolve()
+        }).catch(error => {
+            //ToDo: Remove
+            console.log(error)
+            reject(error)
+        })
+    })
+}
 
 let endpoints = []
 consoleCallColorFormat = {
@@ -412,6 +445,10 @@ function api(call, endpoint, func, permlevel = undefined) {
                 func(request, response, auth)
             }).catch((error) => {
                 logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} declined`)
+                console.log(error.code)
+                if (error.code === undefined){
+                    error.code = 500
+                }
                 response.status(error.code).send({error: error.error})
             })
         } else {
@@ -614,10 +651,6 @@ function updateToken(id) {
     })
 }
 
-function createUser(firstname, secondname, lastname, role, short_name) {
-
-}
-
 
 //ToDO: Rework, add token verification
 api("post", "/login", (req, res) => {
@@ -689,6 +722,19 @@ api("get", "/shortkey/:class_id/:short", (req, res) => {
     }).catch((error) => res.status(error.code).send({error: error.error}))
 })
 
+api("post", "/user/:id/class", (req, res) => {
+    let body = JSON.parse(req.body)
+    if (body["class_id"] === undefined){
+        res.status(400).send({error: "class_id is required"})
+        return;
+    }
+    console.log(req.params.id)
+    setStudentsClass(req.params.id, body["class_id"]).then(()=>{
+        res.status(200).send()
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
 
 api("get", "/", (request, response) => {
     response.send(endpoints)
