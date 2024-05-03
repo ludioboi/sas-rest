@@ -77,9 +77,9 @@ function initMySQL() {
         'short VARCHAR(15) NOT NULL, ' +
         'description VARCHAR(255));').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS credentials (user_id INT NOT NULL PRIMARY KEY, ' +
-        'password VARCHAR(25) NOT NULL);').catch(error => console.error(error))
+        'password VARCHAR(25));').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS authorization (user_id int not null primary key, token VARCHAR(36) not null, level int not null, expires int null);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS short_keys (short varchar(4) not null, user_id int);').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS short_keys (short_key varchar(4) not null, user_id int);').catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS timetable (class_id int not null, room_id int not null, time_id int not null, teacher_id int not null, subject varchar(16) not null, day VARCHAR(5) not null, double_lesson boolean)").catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS substition (class_id int not null, room_id int not null, time_id int not null, teacher_id int, subject varchar(16), day VARCHAR(5) not null, date int not null, double_lesson boolean)").catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS times (time_id int not null, start_time int not null)").catch(error => console.error(error))
@@ -90,14 +90,17 @@ function initMySQL() {
 
 initMySQL()
 
-function getUserIdByShortKey(short, class_id) {
+
+// Functions to process sql requests, returns a Promise for async work
+
+function getUserIDAndTokenByShortKey(short, class_id) {
     return new Promise((resolve, reject) => {
-        query('SELECT * FROM short_keys WHERE short = ? AND class_id = ?', [short, class_id]).then((results, fields) => {
+        query('SELECT a.token, s.user_id FROM short_keys AS s, authorization AS a, students_classes AS c WHERE s.short_key = ? AND c.user_id = s.user_id AND c.class_id = ? AND a.user_id = s.user_id', [short, class_id]).then((results, fields) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Entry not found"})
                 return
             }
-            resolve(results[0].user_id)
+            resolve(results[0])
         }).catch((error) => {
             reject(error)
         })
@@ -119,10 +122,21 @@ function getTokenByLogin(id, password) {
                         reject({code: 404, error: "Token not found"})
                         return
                     }
-                    resolve(results[0].token)
+                    resolve({code: 200, token: results[0].token})
                 })
             } else {
-                reject({code: 401, error: "Wrong password"})
+                if (results[0].password === undefined || results[0].password === null) {
+                    query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
+                        if (results.length === 0) {
+                            reject({code: 404, error: "Token not found"})
+                            return
+                        }
+                        resolve({code: 303, token: results[0].token})
+                    })
+                } else {
+                    reject({code: 401, error: "Wrong password"})
+                }
+
             }
         }).catch((error) => {
             reject(error)
@@ -130,7 +144,7 @@ function getTokenByLogin(id, password) {
     })
 }
 
-function getUser(id) {
+function getUserByID(id) {
     return new Promise((resolve, reject) => {
         query(`SELECT *
                FROM user
@@ -153,7 +167,7 @@ function getClassByUserID(id) {
                 reject({code: 404, "error": `Class not found`})
                 return
             }
-            getClass(results[0].class_id).then(class_ => {
+            getClassByID(results[0].class_id).then(class_ => {
                 resolve(class_)
             }).catch(error => {
                 reject(error)
@@ -213,7 +227,7 @@ function getRooms(limit, offset, orderby) {
     })
 }
 
-function getClass(id) {
+function getClassByID(id) {
     return new Promise((resolve, reject) => {
         query(`SELECT *
                FROM classes
@@ -224,10 +238,10 @@ function getClass(id) {
             }
 
             let classObject = results[0]
-            getUser(classObject.teacher_id).then((teacher) => {
+            getUserByID(classObject.teacher_id).then((teacher) => {
                 classObject.teacher = teacher
                 if (classObject.sec_teacher_id !== null) {
-                    getUser(classObject.sec_teacher_id).then((sec_teacher) => {
+                    getUserByID(classObject.sec_teacher_id).then((sec_teacher) => {
                         classObject.sec_teacher = sec_teacher
                         resolve(classObject)
                     }).catch((error) => {
@@ -272,15 +286,19 @@ function getClasses(limit, offset, orderby) {
     })
 }
 
-function getAuthorizationByToken(token) {
+function getAuthorizationByToken(token, ignoreCredentials = false) {
     return new Promise((resolve, reject) => {
-        query("SELECT * FROM authorization where token = ?", [token]).then((results) => {
+        query("SELECT * FROM authorization AS a, credentials AS c where a.token = ? AND a.user_id = c.user_id", [token]).then((results) => {
             if (results.length === 0) {
                 reject({code: 404, error: "Token does not exists"})
                 return
             }
+            if (results[0].password === null && !ignoreCredentials) {
+                reject({code: 303, error: "Please set a new password"})
+                return
+            }
             let entry = results[0]
-            getUser(entry["user_id"]).then((user) => {
+            getUserByID(entry["user_id"]).then((user) => {
                 entry["user"] = user
                 resolve(entry)
             }).catch((error) => {
@@ -295,38 +313,38 @@ function getAuthorizationByToken(token) {
 
 let daysOfTheWeek = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
 
-function getSubjectsByClassIDAndDate(class_id, date){
+function getSubjectsByClassIDAndDate(class_id, date) {
     return new Promise((resolve, reject) => {
-            let dayString = daysOfTheWeek[date.getDay()]
-            let dateMillis = new Date(date.getTime() - (date.getTime() % 86400000)).getTime() // Get only date without hours in millis
-            query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id ORDER BY tab.time_id AND tab.room_id = rooms.id ASC", [class_id, dayString]).then((results_1 => {
-                query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id ORDER BY tab.time_id AND tab.room_id = rooms.id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
-                    if (results_2.length === 0) {
-                        resolve(results_1)
-                    } else {
-                        for (i = 0; i < results_2.length; i++) {
-                            for (j = 0; j < results_1.length; j++) {
-                                if (results_2[i].time_id === results_1[j].time_id) {
-                                    results_1[j] = results_2[i]
-                                }
+        let dayString = daysOfTheWeek[date.getDay()]
+        let dateMillis = new Date(date.getTime() - (date.getTime() % 86400000)).getTime() // Get only date without hours in millis
+        query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id ORDER BY tab.time_id AND tab.room_id = rooms.id ASC", [class_id, dayString]).then((results_1 => {
+            query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id ORDER BY tab.time_id AND tab.room_id = rooms.id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
+                if (results_2.length === 0) {
+                    resolve(results_1)
+                } else {
+                    for (i = 0; i < results_2.length; i++) {
+                        for (j = 0; j < results_1.length; j++) {
+                            if (results_2[i].time_id === results_1[j].time_id) {
+                                results_1[j] = results_2[i]
                             }
                         }
-                        for (i = 0; i < results_1.length; i++){
-                            if (results_1[i].double_lesson === 1){
-                                subject[i]["end_time"] = subject[i]["start_time"] + 2 * 2700000
-                            } else {
-                                subject[i]["end_time"] = subject[i]["start_time"] + 2700000
-                            }
-                        }
-                        resolve(results_1)
                     }
-                }).catch((error) => {
-                    reject(error)
-                })
-            })).catch(error => {
+                    for (i = 0; i < results_1.length; i++) {
+                        if (results_1[i].double_lesson === 1) {
+                            subject[i]["end_time"] = subject[i]["start_time"] + 2 * 2700000
+                        } else {
+                            subject[i]["end_time"] = subject[i]["start_time"] + 2700000
+                        }
+                    }
+                    resolve(results_1)
+                }
+            }).catch((error) => {
                 reject(error)
             })
+        })).catch(error => {
+            reject(error)
         })
+    })
 }
 
 function getCurrentSubjectByClassID(id) {
@@ -334,8 +352,8 @@ function getCurrentSubjectByClassID(id) {
     return new Promise((resolve, reject) => {
         getSubjectsByClassIDAndDate(id, currentDate).then(subjects => {
             let currentTimeMillis = 1000 * 60 * 60 * currentDate.getHours() + 1000 * 60 * currentDate.getMinutes()
-            for (i = 0; i < subjets.length; i++){
-                if (subjects[i].start_time < currentTimeMillis && subjects[i].end_time > currentTimeMillis){
+            for (i = 0; i < subjets.length; i++) {
+                if (subjects[i].start_time < currentTimeMillis && subjects[i].end_time > currentTimeMillis) {
                     resolve(subjects[i])
                     break;
                 }
@@ -346,11 +364,11 @@ function getCurrentSubjectByClassID(id) {
 
 function getTodaysScheduleByClassID(id) {
     return new Promise((resolve, reject) => {
-       getSubjectsByClassIDAndDate(id, new Date()).then((subjects) => {
-           resolve(subjects)
-       }).catch((error) => {
-           reject(error)
-       })
+        getSubjectsByClassIDAndDate(id, new Date()).then((subjects) => {
+            resolve(subjects)
+        }).catch((error) => {
+            reject(error)
+        })
     })
 }
 
@@ -397,14 +415,14 @@ function checkAuthorizationLevel(request, level) {
 }
 
 
-function setStudentsClass(user_id, class_id){
+function setStudentsClass(user_id, class_id) {
     return new Promise((resolve, reject) => {
         query("INSERT INTO students_classes" +
-        "(user_id, class_id)" +
-        " VALUES " +
-        "(?, ?) " +
-        "ON DUPLICATE KEY UPDATE " +
-        "class_id = ?", [user_id, class_id, class_id]).then(results => {
+            "(user_id, class_id)" +
+            " VALUES " +
+            "(?, ?) " +
+            "ON DUPLICATE KEY UPDATE " +
+            "class_id = ?", [user_id, class_id, class_id]).then(results => {
             resolve()
         }).catch(error => {
             reject(error)
@@ -412,6 +430,28 @@ function setStudentsClass(user_id, class_id){
     })
 }
 
+function resetPasswordForUserID(user_id) {
+    return new Promise((resolve, reject) => {
+        query("SELECT user_id FROM credentials WHERE user_id = ?", [user_id]).then(results => {
+            if (results.length !== 0) {
+                query("UPDATE credentials SET password = NULL WHERE user_id = ?", [user_id]).then(results => {
+                    if (results.rowsAffected !== 0) {
+                        resolve()
+                    } else {
+                        reject({code: 503, error: "Could not reset password"})
+                    }
+                })
+            } else {
+                reject({code: 404, error: "Entry not found"})
+            }
+        }).catch((error) => {
+            reject(error)
+        })
+    })
+}
+
+
+// Receive HTTP request and process them
 let endpoints = []
 consoleCallColorFormat = {
     "get": logger.Colors.FOREGROUND_GREEN + logger.Colors.BRIGHT,
@@ -430,7 +470,7 @@ function api(call, endpoint, func, permlevel = undefined) {
                 func(request, response, auth)
             }).catch((error) => {
                 logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} declined`)
-                if (error.code === undefined){
+                if (error.code === undefined) {
                     error.code = 500
                 }
                 response.status(error.code).send(error)
@@ -509,7 +549,7 @@ api("get", "/users", (request, response) => {
 api("get", "/users/:id", (request, response) => {
     const id = parseInt(request.params.id);
 
-    getUser(id).then((user) => {
+    getUserByID(id).then((user) => {
         response.send(user);
     }).catch((error) => {
         response.status(error.code).send({error: error.error});
@@ -530,7 +570,7 @@ api("get", "/rooms/:id", (request, response) => {
 api("get", "/classes/:id", (req, res) => {
     const id = parseInt(req.params.id);
 
-    getClass(id).then((classObject) => {
+    getClassByID(id).then((classObject) => {
         res.send(classObject);
     }).catch(error => {
         res.status(error.code).send({error: error.error});
@@ -590,8 +630,8 @@ api("get", "/students", (req, res) => {
 api("put", "/login", (req, res) => {
     let body = req.body
     let id = body.id, password = body.password
-    getTokenByLogin(id, password).then((token) => {
-        res.status(200).send({token: token})
+    getTokenByLogin(id, password).then((result) => {
+        res.status(result.code).send({token: result.token})
     }).catch((error) => {
         res.status(error.code).send({error: error.error})
     })
@@ -604,7 +644,7 @@ function randomInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1) + min)
 }
 
-function updateToken(id) {
+function generateTokenForUserID(id) {
     return new Promise((resolve, reject) => {
 
         query("SELECT * FROM user WHERE id =?", [id]).then((results, fields) => {
@@ -627,6 +667,8 @@ function updateToken(id) {
                 }).catch(error => {
                     reject(error);
                 })
+            }).catch(error => {
+                reject(error)
             })
         }).catch(error => {
             reject(error);
@@ -635,7 +677,6 @@ function updateToken(id) {
 }
 
 
-//ToDO: Rework, add token verification
 api("post", "/login", (req, res) => {
 
     if (!req.is("application/json")) {
@@ -648,36 +689,40 @@ api("post", "/login", (req, res) => {
         res.status(400).send({error: "Body must be type of object"})
         return
     }
-    if (req.body.id === undefined || req.body.password === undefined) {
-        res.status(400).send({error: "id and password are required"})
+    if (req.body.password === undefined) {
+        res.status(400).send({error: "password is required"})
         return
     }
 
-    query("SELECT * FROM user WHERE id =?", [req.body.id]).then((results, fields) => {
-        if (results.length === 0) {
-            res.status(404).send({error: "Student not found"})
-            return
-        }
-
-        query('SELECT * from credentials WHERE user_id =?', [req.body.id]).then((results_, fields_) => {
-            let queryString = "UPDATE credentials SET password =? WHERE user_id =?"
-            if (results_.length === 0) {
-                queryString = "INSERT INTO credentials (password, user_id) VALUES (?,?)"
-            }
-            query(queryString, [req.body.password, req.body.id]).then(() => {
-                updateToken(req.body.id).then(token => {
-                    res.status(200).send({message: "Credentials updated successfully", token: token});
+    getAuthorizationByToken(req.headers["authorization"], true).then(auth => {
+        let password = req.body.password, user_id = auth.user.id
+        if (auth.user !== undefined) {
+            query('SELECT * from credentials WHERE user_id =?', [user_id]).then((results_, fields_) => {
+                let queryString = "UPDATE credentials SET password =? WHERE user_id =?"
+                if (results_.length === 0) {
+                    queryString = "INSERT INTO credentials (password, user_id) VALUES (?,?)"
+                }
+                query(queryString, [password, user_id]).then(() => {
+                    generateTokenForUserID(user_id).then(token => {
+                        res.status(200).send({token: token});
+                    }).catch(error => {
+                        res.status(error.code).send(error)
+                    })
                 }).catch(error => {
-                    res.status(503).send({error: "Could not generate token"})
+                    res.status(error.code).send({error: error.error})
                 })
+            }).catch(error => {
+                res.status(error.code).send({error: error.error})
             })
-        }).catch(error => {
-            res.status(error.code).send({error: error.error})
-        })
+        } else {
+            res.status(404).send({status: 404, error: "Could not find user for this auth token"})
+        }
     }).catch(error => {
-        res.status(error.code).send({error: error.error})
+        res.status(error.code).send(error)
     })
-}, 1)
+
+
+})
 
 
 api("get", "/students/:id/class", (req, res) => {
@@ -687,7 +732,7 @@ api("get", "/students/:id/class", (req, res) => {
             res.status(404).send({error: "Entry not found"})
             return
         }
-        getClass(results[0].class_id).then(classData => {
+        getClassByID(results[0].class_id).then(classData => {
             res.status(200).send(classData);
         }).catch(error => {
             res.status(error.code).send({error: error.error})
@@ -700,25 +745,37 @@ api("get", "/students/:id/class", (req, res) => {
 
 api("get", "/shortkey/:class_id/:short", (req, res) => {
     let class_id = parseInt(req.params.class_id), short = req.params.short;
-    getUserIdByShortKey(short, class_id).then(user_id => {
-        res.status(200).send({user_id: user_id})
+    getUserIDAndTokenByShortKey(short, class_id).then(result => {
+        res.status(200).send(result)
     }).catch((error) => res.status(error.code).send({error: error.error}))
 })
 
 api("post", "/user/:id/class", (req, res) => {
-    if (!req.is("application/json")){
+    if (!req.is("application/json")) {
         res.status(400).send({error: "Content-Type must be application/json"})
         return
     }
     let body = req.body
-    if (body["class_id"] === undefined){
+    if (body["class_id"] === undefined) {
         res.status(400).send({error: "class_id is required"})
         return;
     }
-    setStudentsClass(req.params.id, body["class_id"]).then(()=>{
+    setStudentsClass(req.params.id, body["class_id"]).then(() => {
         res.status(200).send()
     }).catch(error => {
         res.status(error.code).send(error)
+    })
+}, 3)
+
+api("post", "/user/:id/reset_password", (req, res, auth) => {
+    getUserByID(req.params.id).then(() => {
+        resetPasswordForUserID(req.params.id).then(() => {
+            res.status(205).send()
+        }).catch((error) => {
+            res.status(error.code).send(error)
+        })
+    }).catch((error) => {
+        req.status(error.code).send(error)
     })
 }, 3)
 
