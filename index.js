@@ -26,7 +26,7 @@ logger.info("Loaded libraries")
 const WEBSOCKET_PORT = 1234
 const MYSQL_PORT = 3306
 
-const config = {
+const sqlConfig = {
     host: "localhost",
     port: MYSQL_PORT,
     user: "root",
@@ -50,7 +50,7 @@ function query(query, values = []) {
     })
 }
 
-database = mysql.createPool(config)
+database = mysql.createPool(sqlConfig)
 
 //On query, a new connection to the database is created
 database.on('connection', (connection) => {
@@ -61,7 +61,7 @@ database.on('connection', (connection) => {
 
 //Creates all necessary tables
 function initMySQL() {
-    query('CREATE TABLE IF NOT EXISTS students_classes (user_id INT NOT NULL, class_id int not null)').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS students_classes (user_id INT PRIMARY KEY NOT NULL, class_id int not null)').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS classes (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'short VARCHAR(15) NOT NULL, ' +
         'description VARCHAR(255), ' +
@@ -283,10 +283,11 @@ function getAuthorizationByToken(token) {
             getUser(entry["user_id"]).then((user) => {
                 entry["user"] = user
                 resolve(entry)
-            }).catch(() => {
+            }).catch((error) => {
                 resolve(entry)
             })
         }).catch((error) => {
+
             reject(error)
         })
     })
@@ -388,11 +389,28 @@ function checkAuthorizationLevel(request, level) {
                 } else {
                     reject({code: 403, error: "Not allowed"})
                 }
+            }).catch(error => {
+                reject(error)
             })
         }
     })
 }
 
+
+function setStudentsClass(user_id, class_id){
+    return new Promise((resolve, reject) => {
+        query("INSERT INTO students_classes" +
+        "(user_id, class_id)" +
+        " VALUES " +
+        "(?, ?) " +
+        "ON DUPLICATE KEY UPDATE " +
+        "class_id = ?", [user_id, class_id, class_id]).then(results => {
+            resolve()
+        }).catch(error => {
+            reject(error)
+        })
+    })
+}
 
 let endpoints = []
 consoleCallColorFormat = {
@@ -412,7 +430,10 @@ function api(call, endpoint, func, permlevel = undefined) {
                 func(request, response, auth)
             }).catch((error) => {
                 logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} declined`)
-                response.status(error.code).send({error: error.error})
+                if (error.code === undefined){
+                    error.code = 500
+                }
+                response.status(error.code).send(error)
             })
         } else {
             logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} accepted`)
@@ -452,7 +473,6 @@ api("get", "/me/schedule/current_subject/", (req, res, auth) => {
 }, 1)
 
 api("get", "/me/schedule/", (req, res, auth) => {
-    console.log(auth)
     getTodayScheduleByUserID(auth.user_id).then((schedule) => {
         res.send(schedule)
     }).catch(error => {
@@ -614,10 +634,6 @@ function updateToken(id) {
     })
 }
 
-function createUser(firstname, secondname, lastname, role, short_name) {
-
-}
-
 
 //ToDO: Rework, add token verification
 api("post", "/login", (req, res) => {
@@ -689,6 +705,22 @@ api("get", "/shortkey/:class_id/:short", (req, res) => {
     }).catch((error) => res.status(error.code).send({error: error.error}))
 })
 
+api("post", "/user/:id/class", (req, res) => {
+    if (!req.is("application/json")){
+        res.status(400).send({error: "Content-Type must be application/json"})
+        return
+    }
+    let body = req.body
+    if (body["class_id"] === undefined){
+        res.status(400).send({error: "class_id is required"})
+        return;
+    }
+    setStudentsClass(req.params.id, body["class_id"]).then(()=>{
+        res.status(200).send()
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
 
 api("get", "/", (request, response) => {
     response.send(endpoints)
