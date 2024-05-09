@@ -134,6 +134,8 @@ function getTokenByLogin(id, password) {
                         return
                     }
                     resolve({code: 200, token: results[0].token})
+                }).catch(error => {
+                    reject(error)
                 })
             } else {
                 if (results[0].password === undefined || results[0].password === null) {
@@ -143,6 +145,8 @@ function getTokenByLogin(id, password) {
                             return
                         }
                         resolve({code: 303, token: results[0].token})
+                    }).catch(error => {
+                        reject(error)
                     })
                 } else {
                     reject({code: 401, error: "Wrong password"})
@@ -161,7 +165,7 @@ function getUserByID(id) {
                FROM user
                WHERE id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
-                reject({code: 404, error: "Entry not found"})
+                reject({code: 333, error: "Entry not found"})
                 return
             }
             resolve(results[0])
@@ -175,7 +179,7 @@ function getClassByUserID(id) {
     return new Promise((resolve, reject) => {
         query("SELECT class_id FROM students_classes WHERE user_id = ?", [id]).then((results, fields) => {
             if (results.length === 0) {
-                reject({code: 404, "error": `Class not found`})
+                reject({code: 331, "error": `Class not found`})
                 return
             }
             getClassByID(results[0].class_id).then(class_ => {
@@ -244,7 +248,7 @@ function getClassByID(id) {
                FROM classes
                WHERE id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
-                reject({code: 404, error: "Entry not found"})
+                reject({code: 332, error: "Entry not found"})
                 return
             }
 
@@ -270,6 +274,35 @@ function getClassByID(id) {
     })
 }
 
+function isStudentPresent(user_id) {
+    return new Promise((resolve, reject) => {
+        getClassByUserID(user_id).then(classObject => {
+            getCurrentSubjectByClassID(classObject.id).then(subject => {
+                let currDate = new Date()
+                let currDateInMillis = currDate.getOnlyDateMillis()
+                let currTimeInMillis = currDate.getOnlyTimeMillis()
+                query("SELECT * FROM presence WHERE user_id = ? AND date = ? AND present_from >= ? AND present_until >= ? AND time_id = ?", [user_id, currDateInMillis, subject.start_time, currTimeInMillis, subject.time_id]).then((results) => {
+                    if (results.length === 0) {
+                        resolve(false)
+                    } else {
+                        if (results[0].present_from !== 0){
+                            resolve(results[0])
+                        } else {
+                            resolve(false)
+                        }
+                    }
+                }).catch(error => {
+                    reject(error)
+                })
+            }).catch(error => {
+                reject(error)
+            })
+        }).catch(error => {
+            reject(error)
+        })
+    })
+}
+
 function setStudentPresence(user_id, date, time_id, present_from, present_until, room_id) {
     return new Promise((resolve, reject) => {
         query("SELECT * FROM presence WHERE user_id = ? AND date = ? AND time_id = ?", [user_id, date, time_id]).then((results) => {
@@ -280,7 +313,7 @@ function setStudentPresence(user_id, date, time_id, present_from, present_until,
                     reject(error)
                 })
             } else {
-                query("UPDATE presence SET present_until = ? WHERE user_id = ? AND date = ? AND time_id = ?", [present_until, user_id, date, time_id]).then(() => {
+                query("UPDATE presence SET present_until = ?, present_from = ? WHERE user_id = ? AND date = ? AND time_id = ?", [present_until, present_from, user_id, date, time_id]).then(() => {
                     resolve()
                 }).catch(error => {
                     reject(error)
@@ -535,18 +568,15 @@ function getCurrentClassByTeacherID(teacher_id){
 }
 
 
-function sendPresentStudentToTeacherID(teacher_id, user, loginTime=undefined) {
+function sendPresentStudentToTeacherID(teacher_id, user, loginTime=0, present_until) {
     for (let i in socketConnections) {
         let socket = socketConnections[i]
-        console.log(socket)
+        let jsonObject = {
+            "user": user,
+            "present_from": loginTime,
+            present_until: present_until
+        }
         if (socket.user_id === teacher_id) {
-            let jsonObject = {
-                "user": user,
-                "present": loginTime !== undefined
-            }
-            if (loginTime !== undefined) {
-                jsonObject["present_from"] = loginTime
-            }
             socket.socket.emit("student", JSON.stringify(jsonObject))
         }
     }
@@ -562,9 +592,9 @@ function sendCurrentPresentStudentsToTeacher(class_id) {
                 for (let i = 0; i < students.length; i++) {
                     query("SELECT * FROM presence WHERE date = ? AND present_from >= ? AND ? >= present_until AND user_id = ?", [currDateInMillis, subject.start_time, currTimeInMillis, students[i].id]).then(presence => {
                         if (presence.length === 1) {
-                            sendPresentStudentToTeacherID(subject.teacher_id, students[i], presence[0].present_from)
+                            sendPresentStudentToTeacherID(subject.teacher_id, students[i], presence[0].present_from, presence[0].present_until)
                         } else if (presence.length === 0) {
-                            sendPresentStudentToTeacherID(subject.teacher_id, students[i])
+                            sendPresentStudentToTeacherID(subject.teacher_id, students[i], 0, subject.end_time)
                         }
                         resolve()
                     }).catch((error) => {
@@ -592,7 +622,6 @@ consoleCallColorFormat = {
 function api(call, endpoint, func, permlevel = undefined) {
     endpoints.push({method: call, endpoint: endpoint, permission: permlevel})
     app[call](endpoint, (request, response) => {
-
         if (permlevel !== undefined) {
             checkAuthorizationLevel(request, permlevel).then((auth) => {
                 logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} authorized`)
@@ -612,11 +641,14 @@ function api(call, endpoint, func, permlevel = undefined) {
 }
 
 api("post", "/me/present", (req, res, auth) => {
+    console.log(req.query.room_id)
     if (req.query.room_id === undefined) {
         res.status(400).send({error: "No room_id provided", code: 400})
         return
     }
     let room_id = req.query.room_id
+    let body = req.body
+
     getClassByUserID(auth.user_id).then(classObject => {
         let date = new Date()
         let currentDate = date.getOnlyDateMillis()
@@ -627,23 +659,65 @@ api("post", "/me/present", (req, res, auth) => {
                     res.status(400).send({error: "Wrong room id", code: 400})
                     return
                 }
-                setStudentPresence(auth.user_id, currentDate, subject.time_id, currentTime, subject.end_time, room_id).then(() => {
-                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user, currentTime)
-                    res.status(200).send({message: "Marked student as present"})
-                }).catch(error => {
-                    console.error(error)
-                    if (error.code === undefined) {
-                        error.code = 500
-                    }
-                    res.status(error.code).send(error)
+                isStudentPresent(auth.user_id).then(isStudentPresent => {
+                    if (isStudentPresent) {
+                        if (!body){
+                            res.status(330).send({error: "No body provided", code: 330})
+                            return
+                        }
+                        switch (body.action) {
+                            case "set_present_until":
+                                setStudentPresence(auth.user_id, currentDate, subject.time_id, isStudentPresent.present_from, currentTime, room_id).then(()=>{
+                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, isStudentPresent.present_from, currentTime)
+                                    res.status(200).send({message: "Marked student as absent"})
+                                }).catch((err) => {
+                                    res.status(err.code).send(err)
+                                })
+                                break;
+                            case "set_present_from":
+                                setStudentPresence(auth.user_id, currentDate, subject.time_id, currentTime, subject.end_time, room_id).then(()=>{
+                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, currentTime, subject.end_time)
+                                    res.status(200).send({message: "Marked student as present"})
+                                }).catch((err) => {
+                                    res.status(err.code).send(err)
+                                })
+                                break;
+                            case "set_absent":
+                                setStudentPresence(auth.user_id, currentDate, subject.time_id, 0, subject.end_time, room_id).then(()=>{
+                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, 0, subject.end_time)
+                                    res.status(200).send({message: "Marked student as absent"})
+                                }).catch((err) => {
+                                    res.status(err.code).send(err)
+                                })
+                                break;
+                            default:
+                                res.status(330).send({error: "No body provided", code: 330})
+                                break;
+                        }
 
+                    } else {
+                        setStudentPresence(auth.user_id, currentDate, subject.time_id, currentTime, subject.end_time, room_id).then(() => {
+                            sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, currentTime, subject.end_time)
+                            res.status(200).send({message: "Marked student as present"})
+                        }).catch(error => {
+                            if (error.code === undefined) {
+                                error.code = 500
+                            }
+                            res.status(error.code).send(error)
+
+                        })
+                    }
                 })
+
+
             } else {
                 res.status(404).send({error: "Theres no active subject for class id " + classObject.id})
             }
         }).catch(error => {
             res.status(error.code).send(error)
         })
+    }).catch((error) => {
+        res.status(error.code).send(error)
     })
 
 }, 1)
