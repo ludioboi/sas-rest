@@ -13,13 +13,26 @@ let database
 let websocket
 let nodeServer
 let app
+
+// Settings and infos as const
+const HTTP_PORT = 8080
+const WEBSOCKET_PORT = 3030
+const MYSQL_PORT = 3306
+
+const sqlConfig = {
+    host: "localhost",
+    port: MYSQL_PORT,
+    user: "root",
+    database: "sas"
+}
+
 try {
     mysql = require("mysql")
     express = require("express")
     app = express()
     logger = require("./logger.js")
     const {Server} = require("socket.io")
-    websocket = new Server(3030)
+    websocket = new Server(WEBSOCKET_PORT)
 } catch (error) {
     console.error("Could not load libraries. " + error)
     console.log("exiting...")
@@ -34,18 +47,10 @@ Date.prototype.getOnlyTimeMillis = function () {
     return 1000 * 60 * 60 * this.getHours() + 1000 * 60 * this.getMinutes()
 }
 
-// Settings and infos as const
-const WEBSOCKET_PORT = 1234
-const MYSQL_PORT = 3306
 
-const sqlConfig = {
-    host: "localhost",
-    port: MYSQL_PORT,
-    user: "root",
-    database: "sas"
-}
 
 app.use(express.json())
+
 let socketConnections = []
 //MySQL query, if an error occurs, it gets rejected by the promise
 
@@ -130,7 +135,7 @@ function getTokenByLogin(id, password) {
             if (results[0].password === password) {
                 query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
                     if (results.length === 0) {
-                        reject({code: 404, error: "Token not found"})
+                        reject({code: 401, error: "Token not found"})
                         return
                     }
                     resolve({code: 200, token: results[0].token})
@@ -141,7 +146,7 @@ function getTokenByLogin(id, password) {
                 if (results[0].password === undefined || results[0].password === null) {
                     query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
                         if (results.length === 0) {
-                            reject({code: 404, error: "Token not found"})
+                            reject({code: 401, error: "Token not found"})
                             return
                         }
                         resolve({code: 303, token: results[0].token})
@@ -285,7 +290,7 @@ function isStudentPresent(user_id) {
                     if (results.length === 0) {
                         resolve(false)
                     } else {
-                        if (results[0].present_from !== 0){
+                        if (results[0].present_from !== 0 && results[0].present_until >= new Date().getOnlyTimeMillis()) {
                             resolve(results[0])
                         } else {
                             resolve(false)
@@ -738,11 +743,35 @@ api("get", "/me/schedule/", (req, res, auth) => {
     })
 }, 1)
 
+api("get", "/me/is_present", (req, res, auth) => {
+    isStudentPresent(auth.user_id).then(isPresent => {
+        if (isPresent) {
+            res.send({present: true})
+        } else {
+            res.send({present: false})
+        }
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 1)
+
 api("get", "/me", (request, response, auth) => {
     let user = auth.user
     getClassByUserID(user.id).then(class_ => {
         user["class"] = class_
-        response.send(user)
+        getCurrentSubjectByClassID(class_.id).then(subject => {
+            user["subject"] = subject
+            isStudentPresent(user.id).then(isPresent => {
+                user["is_present"] = !(!isPresent)
+                response.send(user)
+
+            }).catch((error) => {
+                user["is_present"] = false
+                response.send(user)
+            })
+        }).catch(() => {
+            response.send(user)
+        })
     }).catch(error => {
         response.send(user)
     })
@@ -804,12 +833,12 @@ api("get", "/classes", (req, res) => {
             return
         }
     }
-    getClasses(limit, offset).then((classes) => {
+    getClasses(limit, offset, orderby).then((classes) => {
         res.send(classes);
     }).catch((error) => {
         res.status(error.code).send(error);
     })
-}, 1)
+})
 
 
 api("get", "/rooms", (req, res) => {
@@ -1034,5 +1063,5 @@ websocket.on("connection", (socket) => {
     })
 })
 
-app.listen(8080)
+app.listen(HTTP_PORT)
 
