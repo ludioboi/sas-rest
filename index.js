@@ -164,16 +164,27 @@ function getTokenByLogin(id, password) {
     })
 }
 
-function getUserByID(id) {
+function getUserByID(id, classObject=false) {
     return new Promise((resolve, reject) => {
         query(`SELECT *
                FROM user
                WHERE id = ?`, [id]).then((results, fields) => {
             if (results.length === 0) {
-                reject({code: 333, error: "Entry not found"})
+                reject({code: 404, error: "Entry not found"})
                 return
             }
-            resolve(results[0])
+            let user = results[0]
+            if (classObject) {
+                getClassByUserID(id).then((result) => {
+                    user["class"] = result
+                    resolve(user)
+                }).catch(error => {
+                    resolve(user)
+                })
+            } else {
+                resolve(user)
+            }
+
         }).catch((error) => {
             reject(error)
         })
@@ -358,7 +369,6 @@ function getAuthorizationByToken(token, ignoreCredentials = false) {
                 resolve(entry)
             })
         }).catch((error) => {
-
             reject(error)
         })
     })
@@ -446,6 +456,7 @@ function checkAuthorizationLevel(request, level) {
     return new Promise((resolve, reject) => {
         let auth = request.headers["authorization"]
         if (auth === undefined) {
+
             reject({code: 401, error: "No Authorization Header found"})
         } else {
             getAuthorizationByToken(auth).then((auth) => {
@@ -538,7 +549,7 @@ function getCurrentClassByTeacherID(teacher_id){
         let date = new Date()
         let dayString = daysOfTheWeek[date.getDay()]
         let dateMillis = date.getOnlyDateMillis() // Get only date without hours and minutes in millis
-        query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id  ASC", [teacher_id, dayString]).then((results_1 => {
+        query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [teacher_id, dayString]).then((results_1 => {
             query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [teacher_id, dayString, dateMillis]).then(results_2 => {
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
@@ -558,7 +569,7 @@ function getCurrentClassByTeacherID(teacher_id){
                 }
                 let currTimeInMillis = new Date().getOnlyTimeMillis()
                 for (i = 0; i < results_1.length; i++) {
-                    if (results_1.start_time <= currTimeInMillis && currTimeInMillis <= results_1.end_time) {
+                    if (results_1[i].start_time <= currTimeInMillis && currTimeInMillis <= results_1[i].end_time) {
                         resolve(results_1[i]["class_id"])
                         return
                     }
@@ -573,13 +584,14 @@ function getCurrentClassByTeacherID(teacher_id){
 }
 
 
-function sendPresentStudentToTeacherID(teacher_id, user, loginTime=0, present_until) {
+function sendPresentStudentToTeacherID(teacher_id, user, loginTime=0, present_until, date) {
     for (let i in socketConnections) {
         let socket = socketConnections[i]
         let jsonObject = {
             "user": user,
             "present_from": loginTime,
-            present_until: present_until
+            "date": date,
+            "present_until": present_until
         }
         if (socket.user_id === teacher_id) {
             socket.socket.emit("student", JSON.stringify(jsonObject))
@@ -595,11 +607,11 @@ function sendCurrentPresentStudentsToTeacher(class_id) {
                 let currDateInMillis = new Date().getOnlyDateMillis()
                 let currTimeInMillis = new Date().getOnlyTimeMillis()
                 for (let i = 0; i < students.length; i++) {
-                    query("SELECT * FROM presence WHERE date = ? AND present_from >= ? AND ? >= present_until AND user_id = ?", [currDateInMillis, subject.start_time, currTimeInMillis, students[i].id]).then(presence => {
+                    query("SELECT * FROM presence WHERE date = ? AND present_from >= ? AND present_until >= ? AND user_id = ?", [currDateInMillis, subject.start_time, currTimeInMillis, students[i].id]).then(presence => {
                         if (presence.length === 1) {
-                            sendPresentStudentToTeacherID(subject.teacher_id, students[i], presence[0].present_from, presence[0].present_until)
+                            sendPresentStudentToTeacherID(subject.teacher_id, students[i].id, presence[0].present_from, presence[0].present_until, presence[0].date)
                         } else if (presence.length === 0) {
-                            sendPresentStudentToTeacherID(subject.teacher_id, students[i], 0, subject.end_time)
+                            sendPresentStudentToTeacherID(subject.teacher_id, students[i].id, 0, subject.end_time, new Date().getOnlyDateMillis())
                         }
                         resolve()
                     }).catch((error) => {
@@ -646,7 +658,6 @@ function api(call, endpoint, func, permlevel = undefined) {
 }
 
 api("post", "/me/present", (req, res, auth) => {
-    console.log(req.query.room_id)
     if (req.query.room_id === undefined) {
         res.status(400).send({error: "No room_id provided", code: 400})
         return
@@ -673,7 +684,7 @@ api("post", "/me/present", (req, res, auth) => {
                         switch (body.action) {
                             case "set_present_until":
                                 setStudentPresence(auth.user_id, currentDate, subject.time_id, isStudentPresent.present_from, currentTime, room_id).then(()=>{
-                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, isStudentPresent.present_from, currentTime)
+                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, isStudentPresent.present_from, currentTime, currentDate)
                                     res.status(200).send({message: "Marked student as absent"})
                                 }).catch((err) => {
                                     res.status(err.code).send(err)
@@ -681,7 +692,7 @@ api("post", "/me/present", (req, res, auth) => {
                                 break;
                             case "set_present_from":
                                 setStudentPresence(auth.user_id, currentDate, subject.time_id, currentTime, subject.end_time, room_id).then(()=>{
-                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, currentTime, subject.end_time)
+                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, currentTime, subject.end_time, currentDate)
                                     res.status(200).send({message: "Marked student as present"})
                                 }).catch((err) => {
                                     res.status(err.code).send(err)
@@ -689,7 +700,7 @@ api("post", "/me/present", (req, res, auth) => {
                                 break;
                             case "set_absent":
                                 setStudentPresence(auth.user_id, currentDate, subject.time_id, 0, subject.end_time, room_id).then(()=>{
-                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, 0, subject.end_time)
+                                    sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, 0, subject.end_time, currentDate)
                                     res.status(200).send({message: "Marked student as absent"})
                                 }).catch((err) => {
                                     res.status(err.code).send(err)
@@ -702,7 +713,7 @@ api("post", "/me/present", (req, res, auth) => {
 
                     } else {
                         setStudentPresence(auth.user_id, currentDate, subject.time_id, currentTime, subject.end_time, room_id).then(() => {
-                            sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, currentTime, subject.end_time)
+                            sendPresentStudentToTeacherID(subject.teacher_id, auth.user_id, currentTime, subject.end_time, currentDate)
                             res.status(200).send({message: "Marked student as present"})
                         }).catch(error => {
                             if (error.code === undefined) {
@@ -758,10 +769,13 @@ api("get", "/me/is_present", (req, res, auth) => {
 api("get", "/me", (request, response, auth) => {
     let user = auth.user
     getClassByUserID(user.id).then(class_ => {
+
         user["class"] = class_
         getCurrentSubjectByClassID(class_.id).then(subject => {
+
             user["subject"] = subject
             isStudentPresent(user.id).then(isPresent => {
+
                 user["is_present"] = !(!isPresent)
                 response.send(user)
 
@@ -796,7 +810,7 @@ api("get", "/users", (request, response) => {
 api("get", "/users/:id", (request, response) => {
     const id = parseInt(request.params.id);
 
-    getUserByID(id).then((user) => {
+    getUserByID(id, true).then((user) => {
         response.send(user);
     }).catch((error) => {
         response.status(error.code).send(error);
@@ -1045,9 +1059,9 @@ websocket.on("connection", (socket) => {
             if (auth.level >= 2 && auth.user_id !== undefined) {
                 socketConnections.push({user_id: auth.user_id, socket: socket})
                 logger.info("Teacher connected: " + token)
-                socket.write("success")
-                getCurrentClassByTeacherID(socket.user_id).then((class_id) => {
-                    sendCurrentPresentStudentsToTeacher(class_id).then().catch((error) => {
+                getCurrentClassByTeacherID(auth.user_id).then((class_id) => {
+                    sendCurrentPresentStudentsToTeacher(class_id).then(() => {
+                    }).catch((error) => {
                         console.log(error)
                     })
                 }).catch((error) => {
@@ -1059,7 +1073,11 @@ websocket.on("connection", (socket) => {
         })
     })
     socket.on("disconnect", () => {
-
+        for (let i = 0; i < socketConnections.length; i++) {
+            if (socketConnections[i].socket === socket) {
+                socketConnections.splice(i, 1)
+            }
+        }
     })
 })
 
