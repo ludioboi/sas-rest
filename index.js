@@ -385,7 +385,7 @@ function getSubjectsByClassIDAndDate(class_id, date) {
             query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
-                        let timePos = getPosByTimeID(results_1, results_2[i])
+                        let timePos = getPosByTimeID(results_1, results_2[i].time_id)
                         if (timePos!== -1) {
                             results_1[timePos] = results_2[i]
                         } else {
@@ -665,6 +665,7 @@ function api(call, endpoint, func, permlevel = undefined) {
                 logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} authorized`)
                 func(request, response, auth)
             }).catch((error) => {
+                console.log(error)
                 logger.info(`API CALL: ${consoleCallColorFormat[call] + call.toUpperCase() + logger.Colors.RESET} ${"'" + logger.Colors.FOREGROUND_BLUE + logger.Colors.UNDERSCORE + endpoint + logger.Colors.RESET + "'"} declined`)
                 if (error.code === undefined) {
                     error.code = 500
@@ -770,7 +771,7 @@ api("get", "/me/schedule/current_subject/", (req, res, auth) => {
 }, 1)
 
 api("get", "/me/schedule/", (req, res, auth) => {
-    if (auth.user.role === 1) {
+    if (auth.user.role === 2) {
         getTodaysScheduleByTeacherID(auth.user.id).then((schedule) => {
             res.send(schedule)
         }).catch(error => {
@@ -783,7 +784,6 @@ api("get", "/me/schedule/", (req, res, auth) => {
             res.status(error.code).send(error)
         })
     }
-
 
 }, 1)
 
@@ -958,6 +958,16 @@ function randomInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1) + min)
 }
 
+function setPermissionsLevelForUserID(userID, level) {
+    return new Promise((resolve, reject) => {
+        query("UPDATE authorization SET level =? WHERE user_id =?", [level, userID]).then(() => {
+            resolve();
+        }).catch(error => {
+            reject(error);
+        })
+    })
+}
+
 function generateTokenForUserID(id) {
     return new Promise((resolve, reject) => {
 
@@ -1034,9 +1044,69 @@ api("post", "/login", (req, res) => {
     }).catch(error => {
         res.status(error.code).send(error)
     })
-
-
 })
+
+api("post", "/user", (req, res) => {
+    let body = req.body
+    if (!req.is("application/json")) {
+        res.status(415).send({error: "Content type must be application/json"})
+        return
+    }
+    if (!(req.body instanceof Object)) {
+        res.status(400).send({error: "Body must be type of object"})
+        return
+    }
+    if (body.firstname === undefined || body.lastname === undefined) {
+        res.status(400).send({error: "firstname and lastname is required"})
+        return
+    }
+    let firstname = "'" + body.firstname + "'", lastname = "'" + body.lastname + "'"
+    let id = "NULL", role = "1", short_name = "NULL", secondname = "NULL"
+    if (body.id !== undefined) {
+        id = "'" + body.id + "'"
+    }
+    if (body.role !== undefined) {
+        role = body.role
+    }
+    if (body.short_name !== undefined) {
+        short_name = "'" + body.short_name + "'"
+    }
+    if (body.secondname !== undefined) {
+        secondname = "'" + body.secondname + "'"
+    }
+
+    let queryString = `INSERT INTO user (id, firstname, secondname, lastname, short_name, role) VALUES (${id}, ${firstname}, ${secondname}, ${lastname}, ${short_name}, ${role})`
+    query(queryString).then((result) => {
+        generateTokenForUserID(result.insertId).then(token => {
+            query("INSERT INTO credentials (user_id, password) VALUES (?, ?)", [result.insertId, ""]).then((result) => {
+                if (body.level !== undefined && body.level !== 1) {
+                    setPermissionsLevelForUserID(result.insertId, body.level).then(() => {
+                        res.status(200).send({message: "OK", status: 200})
+                    }).catch((error) => {
+                        res.status(error.code).send(error)
+                    })
+                    return;
+                }
+                res.status(200).send({status: 200, message: "OK"})
+            })
+        }).catch(error => {
+            res.status(error.code).send(error)
+        })
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
+
+api("get", "/user/search", (req, res, auth) => {
+    let q = req.query.q
+    q = q.toLowerCase()
+    q = "%" + q + "%"
+    query("SELECT * FROM `user` WHERE LOWER(firstname) LIKE ? OR LOWER(secondname) LIKE ? OR LOWER(lastname) LIKE ? OR id LIKE ? OR LOWER(short_name) LIKE ? OR CONCAT(LOWER(firstname), \" \", LOWER(lastname)) LIKE ?", [q, q, q, q, q, q]).then((user) => {
+        res.status(200).send(user)
+    }).catch((error) => {
+        res.status(error.code).send(error)
+    })
+}, 3)
 
 
 api("get", "/students/:id/class", (req, res) => {
