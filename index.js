@@ -385,10 +385,11 @@ function getSubjectsByClassIDAndDate(class_id, date) {
             query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
-                        for (j = 0; j < results_1.length; j++) {
-                            if (results_2[i].time_id === results_1[j].time_id) {
-                                results_1[j] = results_2[i]
-                            }
+                        let timePos = getPosByTimeID(results_1, results_2[i])
+                        if (timePos!== -1) {
+                            results_1[timePos] = results_2[i]
+                        } else {
+                            results_1.push(results_2[i])
                         }
                     }
                 }
@@ -543,8 +544,16 @@ function getStudentsByClassID(class_id){
         })
     })
 }
+function getPosByTimeID(schedule, id){
+    for (i = 0; i < schedule.length; i++){
+        if (schedule[i].time_id === id){
+            return i
+        }
+    }
+    return -1
+}
 
-function getCurrentClassByTeacherID(teacher_id){
+function getTodaysScheduleByTeacherID(teacher_id){
     return new Promise((resolve, reject) => {
         let date = new Date()
         let dayString = daysOfTheWeek[date.getDay()]
@@ -553,10 +562,11 @@ function getCurrentClassByTeacherID(teacher_id){
             query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [teacher_id, dayString, dateMillis]).then(results_2 => {
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
-                        for (j = 0; j < results_1.length; j++) {
-                            if (results_2[i].time_id === results_1[j].time_id) {
-                                results_1[j] = results_2[i]
-                            }
+                        let timePos = getPosByTimeID(results_1, results_2[i])
+                        if (timePos!== -1) {
+                            results_1[timePos] = results_2[i]
+                        } else {
+                            results_1.push(results_2[i])
                         }
                     }
                 }
@@ -567,13 +577,7 @@ function getCurrentClassByTeacherID(teacher_id){
                         results_1[i]["end_time"] = results_1[i]["start_time"] + 2700000
                     }
                 }
-                let currTimeInMillis = new Date().getOnlyTimeMillis()
-                for (i = 0; i < results_1.length; i++) {
-                    if (results_1[i].start_time <= currTimeInMillis && currTimeInMillis <= results_1[i].end_time) {
-                        resolve(results_1[i]["class_id"])
-                        return
-                    }
-                }
+                resolve(results_1)
             }).catch((error) => {
                 reject(error)
             })
@@ -584,15 +588,32 @@ function getCurrentClassByTeacherID(teacher_id){
 }
 
 
+function getCurrentClassByTeacherID(teacher_id){
+    return new Promise((resolve, reject) => {
+        getTodaysScheduleByTeacherID(teacher_id).then((results_1) => {
+            let currTimeInMillis = new Date().getOnlyTimeMillis()
+            for (i = 0; i < results_1.length; i++) {
+                if (results_1[i].start_time <= currTimeInMillis && currTimeInMillis <= results_1[i].end_time) {
+                    resolve(results_1[i]["class_id"])
+                    return
+                }
+            }
+        }).catch((error) => {
+            reject(error)
+        })
+    })
+}
+
+
 function sendPresentStudentToTeacherID(teacher_id, user, loginTime=0, present_until, date) {
+    let jsonObject = {
+        "user": user,
+        "present_from": loginTime,
+        "date": date,
+        "present_until": present_until
+    }
     for (let i in socketConnections) {
         let socket = socketConnections[i]
-        let jsonObject = {
-            "user": user,
-            "present_from": loginTime,
-            "date": date,
-            "present_until": present_until
-        }
         if (socket.user_id === teacher_id) {
             socket.socket.emit("student", JSON.stringify(jsonObject))
         }
@@ -744,14 +765,26 @@ api("get", "/me/schedule/current_subject/", (req, res, auth) => {
             res.send(subject)
         }).catch(error => res.status(error.code).send(error))
     }).catch(error => res.status(error.code).send(error))
+
+
 }, 1)
 
 api("get", "/me/schedule/", (req, res, auth) => {
-    getTodayScheduleByUserID(auth.user_id).then((schedule) => {
-        res.send(schedule)
-    }).catch(error => {
-        res.status(error.code).send(error)
-    })
+    if (auth.user.role === 1) {
+        getTodaysScheduleByTeacherID(auth.user.id).then((schedule) => {
+            res.send(schedule)
+        }).catch(error => {
+            res.status(error.code).send(error)
+        })
+    } else {
+        getTodayScheduleByUserID(auth.user_id).then((schedule) => {
+            res.send(schedule)
+        }).catch(error => {
+            res.status(error.code).send(error)
+        })
+    }
+
+
 }, 1)
 
 api("get", "/me/is_present", (req, res, auth) => {
@@ -790,6 +823,26 @@ api("get", "/me", (request, response, auth) => {
         response.send(user)
     })
 }, 1)
+
+api("post", "/student/:user_id/presence", (request, response, auth) => {
+    let user_id = request.params.user.id
+    let body = request.body
+    if (body["present_from"] === undefined || body["present_until"] === undefined || body["room_id"] === undefined || body["time_id"] === undefined || body["date"] === undefined){
+        response.status(330).send({error: "No body provided", code: 330})
+        return
+    }
+    let present_from = body["present_from"]
+    let present_until = body["present_until"]
+    let room_id = body["room_id"]
+    let time_id = body["time_id"]
+    let date = new Date(body["date"]).getOnlyDateMillis()
+    setStudentPresence(user_id, date, time_id, present_from, present_until, room_id).then(() => {
+        response.status(200).send({message: "Marked student as present"})
+        sendPresentStudentToTeacherID(auth.user_id, user_id, present_from, present_until, date)
+    }).catch((error) => {
+        response.status(error.code).send(error)
+    })
+}, 2)
 
 api("get", "/users", (request, response) => {
     let limit = request.query.limit, offset = request.query.offset, orderby = request.query.orderby;
@@ -1056,7 +1109,7 @@ api("get", "/", (request, response) => {
 websocket.on("connection", (socket) => {
     socket.on("token", (token) => {
         getAuthorizationByToken(token, true).then((auth) => {
-            if (auth.level >= 2 && auth.user_id !== undefined) {
+            if (auth.level >= 2 && auth.user_id !== undefined && auth.user.role === 2) {
                 socketConnections.push({user_id: auth.user_id, socket: socket})
                 logger.info("Teacher connected: " + token)
                 getCurrentClassByTeacherID(auth.user_id).then((class_id) => {
