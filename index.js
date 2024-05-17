@@ -20,9 +20,10 @@ const WEBSOCKET_PORT = 3030
 const MYSQL_PORT = 3306
 
 const sqlConfig = {
-    host: "localhost",
+    host: "127.0.0.1",
     port: MYSQL_PORT,
-    user: "root",
+    user: "backend",
+    password: "saks-bbs2",
     database: "sas"
 }
 
@@ -1081,13 +1082,13 @@ api("post", "/user", (req, res) => {
             query("INSERT INTO credentials (user_id, password) VALUES (?, ?)", [result.insertId, ""]).then((result) => {
                 if (body.level !== undefined && body.level !== 1) {
                     setPermissionsLevelForUserID(result.insertId, body.level).then(() => {
-                        res.status(200).send({message: "OK", status: 200})
+                        res.status(200).send({message: "OK", status: 200, user_id: result.insertId})
                     }).catch((error) => {
                         res.status(error.code).send(error)
                     })
                     return;
                 }
-                res.status(200).send({status: 200, message: "OK"})
+                res.status(200).send({status: 200, message: "OK", user_id: result.insertId})
             })
         }).catch(error => {
             res.status(error.code).send(error)
