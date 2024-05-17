@@ -144,7 +144,7 @@ function getTokenByLogin(id, password) {
                     reject(error)
                 })
             } else {
-                if (results[0].password === undefined || results[0].password === null) {
+                if (results[0].password === undefined || results[0].password === null || results[0].password === "") {
                     query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
                         if (results.length === 0) {
                             reject({code: 401, error: "Token not found"})
@@ -802,7 +802,7 @@ api("get", "/me/is_present", (req, res, auth) => {
 
 api("get", "/me", (request, response, auth) => {
     let user = auth.user
-    getClassByUserID(user.id).then(class_ => {
+    getClassByUserID(auth.user_id).then(class_ => {
 
         user["class"] = class_
         getCurrentSubjectByClassID(class_.id).then(subject => {
