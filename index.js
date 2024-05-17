@@ -78,29 +78,29 @@ database.on('connection', (connection) => {
 
 //Creates all necessary tables
 function initMySQL() {
-    query('CREATE TABLE IF NOT EXISTS students_classes (user_id INT PRIMARY KEY NOT NULL, class_id int not null)').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS students_classes (user_id bigint(30) PRIMARY KEY NOT NULL, class_id int not null)').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS classes (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'short VARCHAR(15) NOT NULL, ' +
         'description VARCHAR(255), ' +
         'teacher_id INT NOT NULL,' +
         'sec_teacher_id INT);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS user (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
+    query('CREATE TABLE IF NOT EXISTS user (id bigint(30) AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
         'firstname VARCHAR(255) NOT NULL, ' +
         'secondname VARCHAR(255), ' +
         'lastname VARCHAR(255) NOT NULL, ' +
         'short_name VARCHAR(5), ' +
         'role int not null);').catch(error => console.error(error))
     query('CREATE TABLE IF NOT EXISTS rooms (id INT AUTO_INCREMENT NOT NULL PRIMARY KEY, ' +
-        'short VARCHAR(15) NOT NULL, ' +
+        'short_name VARCHAR(15) NOT NULL, ' +
         'description VARCHAR(255));').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS credentials (user_id INT NOT NULL PRIMARY KEY, ' +
+    query('CREATE TABLE IF NOT EXISTS credentials (user_id bigint(30) NOT NULL PRIMARY KEY, ' +
         'password VARCHAR(25));').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS authorization (user_id int not null primary key, token VARCHAR(36) not null, level int not null, expires int null);').catch(error => console.error(error))
-    query('CREATE TABLE IF NOT EXISTS short_keys (short_key varchar(4) not null, user_id int);').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS authorization (user_id bigint(30) not null primary key, token VARCHAR(36) not null, level int not null, expires int null);').catch(error => console.error(error))
+    query('CREATE TABLE IF NOT EXISTS short_keys (short_key varchar(4) not null, user_id LONG);').catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS timetable (class_id int not null, room_id int not null, time_id int not null, teacher_id int not null, subject varchar(16) not null, day VARCHAR(5) not null, double_lesson boolean)").catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS substition (class_id int not null, room_id int, time_id int not null, teacher_id int, subject varchar(16), day VARCHAR(5) not null, date int not null, double_lesson boolean)").catch(error => console.error(error))
     query("CREATE TABLE IF NOT EXISTS times (time_id int not null, start_time int not null)").catch(error => console.error(error))
-    query("CREATE TABLE IF NOT EXISTS presence (user_id int not null, time_id int not null, date bigint(30) not null, present_from bigint(30) not null, present_until bigint(30) not null, room_id int not null)").catch(error => console.error(error))
+    query("CREATE TABLE IF NOT EXISTS presence (user_id bigint(30) not null, time_id int not null, date bigint(30) not null, present_from bigint(30) not null, present_until bigint(30) not null, room_id int not null)").catch(error => console.error(error))
 
 
 }
@@ -382,8 +382,8 @@ function getSubjectsByClassIDAndDate(class_id, date) {
     return new Promise((resolve, reject) => {
         let dayString = daysOfTheWeek[date.getDay()]
         let dateMillis = date.getOnlyDateMillis() // Get only date without hours and minutes in millis
-        query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id  ASC", [class_id, dayString]).then((results_1 => {
-            query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
+        query("SELECT tab.*, times.*, rooms.short_name AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id  ASC", [class_id, dayString]).then((results_1 => {
+            query("SELECT tab.*, times.*, rooms.short_name AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
                         let timePos = getPosByTimeID(results_1, results_2[i].time_id)
@@ -559,8 +559,8 @@ function getTodaysScheduleByTeacherID(teacher_id){
         let date = new Date()
         let dayString = daysOfTheWeek[date.getDay()]
         let dateMillis = date.getOnlyDateMillis() // Get only date without hours and minutes in millis
-        query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [teacher_id, dayString]).then((results_1 => {
-            query("SELECT tab.*, times.*, rooms.short AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [teacher_id, dayString, dateMillis]).then(results_2 => {
+        query("SELECT tab.*, times.*, rooms.short_name AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [teacher_id, dayString]).then((results_1 => {
+            query("SELECT tab.*, times.*, rooms.short_name AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.teacher_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [teacher_id, dayString, dateMillis]).then(results_2 => {
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
                         let timePos = getPosByTimeID(results_1, results_2[i])
@@ -1079,7 +1079,7 @@ api("post", "/user", (req, res) => {
     let queryString = `INSERT INTO user (id, firstname, secondname, lastname, short_name, role) VALUES (${id}, ${firstname}, ${secondname}, ${lastname}, ${short_name}, ${role})`
     query(queryString).then((result) => {
         generateTokenForUserID(result.insertId).then(token => {
-            query("INSERT INTO credentials (user_id, password) VALUES (?, ?)", [result.insertId, ""]).then((result) => {
+            query("INSERT INTO credentials (user_id, password) VALUES (?, ?)", [result.insertId, ""]).then(() => {
                 if (body.level !== undefined && body.level !== 1) {
                     setPermissionsLevelForUserID(result.insertId, body.level).then(() => {
                         res.status(200).send({message: "OK", status: 200, user_id: result.insertId})
@@ -1093,6 +1093,173 @@ api("post", "/user", (req, res) => {
         }).catch(error => {
             res.status(error.code).send(error)
         })
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
+
+api("post", "/class", (req, res) => {
+    let body = req.body
+    if (!req.is("application/json")) {
+        res.status(415).send({error: "Content type must be application/json"})
+        return
+    }
+    if (!(req.body instanceof Object)) {
+        res.status(400).send({error: "Body must be type of object"})
+        return
+    }
+
+    //CHECK IF REQUIRED FIELDS ARE GIVEN
+    if (body.short === undefined || body.teacher_id === undefined) {
+        res.status(400).send({error: "short and teacher_id are required"})
+        return
+    }
+
+    //REQUIRED FIELDS
+    let short = "'" + body.short + "'", teacher_id = "'" + body.teacher_id + "'"
+
+    //OPTIONAL FIELDS
+    let desciption = "NULL", sec_teacher_id = "NULL"
+    if (body.description !== undefined) {
+        id = "'" + body.description + "'"
+    }
+    if (body.sec_teacher_id !== undefined) {
+        sec_teacher_id = body.sec_teacher_id
+    }
+
+
+    let queryString = `INSERT INTO classes (short, teacher_id, description, sec_teacher_id) VALUES (${short}, ${teacher_id}, ${desciption}, ${sec_teacher_id})`
+    query(queryString).then((result) => {
+        res.status(200).send({status: 200, message: "OK", class_id: result.insertId})
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
+
+api("post", "/times", (req, res) => {
+    let body = req.body
+    if (!req.is("application/json")) {
+        res.status(415).send({error: "Content type must be application/json"})
+        return
+    }
+    if (!(req.body instanceof Object)) {
+        res.status(400).send({error: "Body must be type of object"})
+        return
+    }
+
+    //CHECK IF REQUIRED FIELDS ARE GIVEN
+    if (body.time_id === undefined || body.start_time === undefined) {
+        res.status(400).send({error: "time_id and start_time are required"})
+        return
+    }
+
+    //REQUIRED FIELDS
+    let time_id = "" + body.time_id + "", start_time = "" + body.start_time + ""
+
+    //OPTIONAL FIELDS
+
+
+    let queryString = `INSERT INTO times (time_id, start_time) VALUES (${time_id}, ${start_time})`
+    query(queryString).then((result) => {
+        res.status(200).send({status: 200, message: "OK", time_id: result.insertId})
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
+
+api("post", "/short_key", (req, res) => {
+    let body = req.body
+    if (!req.is("application/json")) {
+        res.status(415).send({error: "Content type must be application/json"})
+        return
+    }
+    if (!(req.body instanceof Object)) {
+        res.status(400).send({error: "Body must be type of object"})
+        return
+    }
+
+    //CHECK IF REQUIRED FIELDS ARE GIVEN
+    if (body.user_id === undefined || body.short_key === undefined) {
+        res.status(400).send({error: "user_id and short_key are required"})
+        return
+    }
+
+    //REQUIRED FIELDS
+    let user_id = "" + body.user_id + "", short_key = "'" + body.short_key + "'"
+
+    //OPTIONAL FIELDS
+
+
+    let queryString = `INSERT INTO short_keys (user_id, short_key) VALUES (${user_id}, ${short_key})`
+    query(queryString).then((result) => {
+        res.status(200).send({status: 200, message: "OK"})
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
+
+api("post", "/room", (req, res) => {
+    let body = req.body
+    if (!req.is("application/json")) {
+        res.status(415).send({error: "Content type must be application/json"})
+        return
+    }
+    if (!(req.body instanceof Object)) {
+        res.status(400).send({error: "Body must be type of object"})
+        return
+    }
+
+    //CHECK IF REQUIRED FIELDS ARE GIVEN
+    if (body.short_name === undefined || body.description === undefined) {
+        res.status(400).send({error: "short_name and description are required"})
+        return
+    }
+
+    //REQUIRED FIELDS
+    let short_name = "'" + body.short_name + "'", description = "'" + body.description + "'"
+
+    //OPTIONAL FIELDS
+    let id = "NULL"
+    if (body.id !== undefined) {
+        id = "'" + body.id + "'"
+    }
+
+    let queryString = `INSERT INTO rooms (id, short_name, description) VALUES (${id}, ${short_name}, ${description})`
+    query(queryString).then((result) => {
+        res.status(200).send({status: 200, message: "OK", room_id: result.insertId})
+    }).catch(error => {
+        res.status(error.code).send(error)
+    })
+}, 3)
+
+api("post", "/schedule", (req, res) => {
+    let body = req.body
+    if (!req.is("application/json")) {
+        res.status(415).send({error: "Content type must be application/json"})
+        return
+    }
+    if (!(req.body instanceof Object)) {
+        res.status(400).send({error: "Body must be type of object"})
+        return
+    }
+
+    //CHECK IF REQUIRED FIELDS ARE GIVEN
+    if (body.class_id === undefined || body.room_id === undefined || body.time_id === undefined || body.teacher_id === undefined || body.subject === undefined || body.day === undefined || body.double_lesson === undefined) {
+        res.status(400).send({error: "class_id, room_id, time_id, teacher_id, subject, day, double_lesson are required"})
+        return
+    }
+
+    //REQUIRED FIELDS
+    let class_id = "" + body.class_id + "", room_id = "" + body.room_id + ""
+    let time_id = "" + body.time_id + "", teacher_id = "" + body.teacher_id + ""
+    let subject = "'" + body.subject + "'", day = "'" + body.day + "'"
+    let double_lesson = "" + body.double_lesson + ""
+
+    //OPTIONAL FIELDS
+
+    let queryString = `INSERT INTO timetable (class_id, room_id, time_id, teacher_id, subject, day, double_lesson) VALUES (${class_id}, ${room_id}, ${time_id}, ${teacher_id}, ${subject}, ${day}, ${double_lesson})`
+    query(queryString).then((result) => {
+        res.status(200).send({status: 200, message: "OK"})
     }).catch(error => {
         res.status(error.code).send(error)
     })
