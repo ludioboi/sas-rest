@@ -133,6 +133,19 @@ function getTokenByLogin(id, password) {
                 reject({code: 404, error: "Entry not found"})
                 return
             }
+
+            if (results[0].password === undefined || results[0].password === null || results[0].password === "") {
+                query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
+                    if (results.length === 0) {
+                        reject({code: 401, error: "Token not found"})
+                        return
+                    }
+                    resolve({code: 303, token: results[0].token})
+                }).catch(error => {
+                    reject(error)
+                })
+                return;
+            }
             if (results[0].password === password) {
                 query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
                     if (results.length === 0) {
@@ -144,20 +157,7 @@ function getTokenByLogin(id, password) {
                     reject(error)
                 })
             } else {
-                if (results[0].password === undefined || results[0].password === null || results[0].password === "") {
-                    query('SELECT token FROM authorization WHERE user_id =?', [id]).then((results, fields) => {
-                        if (results.length === 0) {
-                            reject({code: 401, error: "Token not found"})
-                            return
-                        }
-                        resolve({code: 303, token: results[0].token})
-                    }).catch(error => {
-                        reject(error)
-                    })
-                } else {
-                    reject({code: 401, error: "Wrong password"})
-                }
-
+                reject({code: 401, error: "Wrong password"})
             }
         }).catch((error) => {
             reject(error)
