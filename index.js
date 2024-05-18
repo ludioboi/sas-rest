@@ -388,7 +388,7 @@ function getSubjectsByClassIDAndDate(class_id, date) {
                     for (i = 0; i < results_2.length; i++) {
                         let timePos = getPosByTimeID(results_1, results_2[i].time_id)
                         if (timePos!== -1) {
-                            results_1[timePos] = results_2[i]
+                            results_1.splice(timePos, 1, results_2[i]);
                         } else {
                             results_1.push(results_2[i])
                         }
@@ -564,8 +564,8 @@ function getTodaysScheduleByTeacherID(teacher_id){
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
                         let timePos = getPosByTimeID(results_1, results_2[i])
-                        if (timePos!== -1) {
-                            results_1[timePos] = results_2[i]
+                        if (timePos !== -1) {
+                            results_1.splice(timePos, 1, results_2[i]);
                         } else {
                             results_1.push(results_2[i])
                         }
