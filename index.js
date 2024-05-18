@@ -387,10 +387,14 @@ function getSubjectsByClassIDAndDate(class_id, date) {
                 if (results_2.length !== 0) {
                     for (i = 0; i < results_2.length; i++) {
                         let timePos = getPosByTimeID(results_1, results_2[i].time_id)
-                        if (timePos!== -1) {
+                        if (timePos !== -1) {
+                            console.log(timePos)
                             results_1.splice(timePos, 1, results_2[i]);
+                            console.log(results_1[i])
+                            console.log("replaced in timetable")
                         } else {
                             results_1.push(results_2[i])
+                            console.log("added to timetable")
                         }
                     }
                 }
