@@ -1,8 +1,8 @@
 const { io } = require("socket.io-client");
-const socket = io("ws://localhost:3030");
+const socket = io("ws://192.168.178.72:3030");
 socket.on("connect", function() {
     console.log("connected")
-    socket.emit("token", "bh_1")
+    socket.emit("token", "X8S1VhgaEc%HW7gHzptbaiO@j!oOGYSfceXY")
 
 })
 socket.on("error", (error) => {

@@ -15,8 +15,8 @@ let nodeServer
 let app
 
 // Settings and infos as const
-const HTTP_PORT = 8080
-const WEBSOCKET_PORT = 3030
+const HTTP_PORT = 3330
+const WEBSOCKET_PORT = 3331
 const MYSQL_PORT = 3306
 
 const sqlConfig = {
@@ -385,6 +385,7 @@ function getSubjectsByClassIDAndDate(class_id, date) {
         query("SELECT tab.*, times.*, rooms.short_name AS room_short, rooms.description AS room_description FROM timetable AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id  ASC", [class_id, dayString]).then((results_1 => {
             query("SELECT tab.*, times.*, rooms.short_name AS room_short, rooms.description AS room_description FROM substition AS tab, times AS times, rooms AS rooms WHERE tab.class_id = ? AND tab.day = ? AND tab.time_id = times.time_id AND tab.room_id = rooms.id ORDER BY tab.time_id ASC", [class_id, dayString, dateMillis]).then(results_2 => {
                 if (results_2.length !== 0) {
+                    //ToDo: fix
                     for (i = 0; i < results_2.length; i++) {
                         let timePos = getPosByTimeID(results_1, results_2[i].time_id)
                         if (timePos !== -1) {
